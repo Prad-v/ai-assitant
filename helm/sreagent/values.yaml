@@ -1,0 +1,106 @@
+# Default values for sreagent
+# This is a YAML-formatted file.
+
+replicaCount: 1
+
+image:
+  repository: sreagent
+  pullPolicy: IfNotPresent
+  tag: "0.1.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: sreagent.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Application configuration
+app:
+  name: sreagent
+  geminiModel: "gemini-2.0-flash"
+  host: "0.0.0.0"
+  port: 8000
+
+# MCP server configuration
+mcp:
+  serverHost: "kubernetes-mcp-server"
+  serverPort: 8080
+  transport: "stdio"
+
+# Environment variables
+env: []
+  # - name: CUSTOM_VAR
+  #   value: "custom_value"
+
+# Secrets (should be provided via external secret management)
+secrets: []
+  # - name: GOOGLE_APPLICATION_CREDENTIALS
+  #   secretName: google-credentials
+  #   secretKey: key.json
+
+# Kubernetes MCP Server subchart configuration
+kubernetes-mcp-server:
+  enabled: true
+  image:
+    repository: quay.io/kubernetes-mcp-server/kubernetes-mcp-server
+    tag: "latest"
+  service:
+    type: ClusterIP
+    port: 8080
+  serviceAccount:
+    create: true
+  rbac:
+    create: true
+

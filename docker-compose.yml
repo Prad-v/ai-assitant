@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  sreagent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sreagent
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=sreagent
+      - GEMINI_MODEL=gemini-2.0-flash
+      - MCP_SERVER_HOST=kubernetes-mcp-server
+      - MCP_SERVER_PORT=8080
+      - MCP_TRANSPORT=stdio
+      - HOST=0.0.0.0
+      - PORT=8000
+      - GOOGLE_APPLICATION_CREDENTIALS=/var/secrets/google/key.json
+    volumes:
+      # Mount kubeconfig for local testing
+      - ${HOME}/.kube/config:/root/.kube/config:ro
+      # Mount Google credentials if available
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/var/secrets/google/key.json:ro
+    depends_on:
+      - kubernetes-mcp-server
+    networks:
+      - sreagent-network
+    restart: unless-stopped
+
+  kubernetes-mcp-server:
+    image: quay.io/kubernetes-mcp-server/kubernetes-mcp-server:latest
+    container_name: kubernetes-mcp-server
+    ports:
+      - "8080:8080"
+    environment:
+      - KUBECONFIG=/root/.kube/config
+    volumes:
+      # Mount kubeconfig for local testing
+      - ${HOME}/.kube/config:/root/.kube/config:ro
+    networks:
+      - sreagent-network
+    restart: unless-stopped
+
+networks:
+  sreagent-network:
+    driver: bridge
+

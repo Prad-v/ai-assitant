@@ -1,0 +1,23 @@
+apiVersion: v2
+name: sreagent
+description: Kubernetes Troubleshooting Chat Agent with MCP Integration
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - troubleshooting
+  - sre
+  - ai
+  - agent
+  - mcp
+maintainers:
+  - name: SRE Team
+# Dependencies commented out - kubernetes-mcp-server can be deployed separately
+# or added when the correct Helm repository is available
+# dependencies:
+#   - name: kubernetes-mcp-server
+#     version: "0.0.54"
+#     repository: "https://containers.github.io/kubernetes-mcp-server/charts"
+#     condition: kubernetes-mcp-server.enabled
+

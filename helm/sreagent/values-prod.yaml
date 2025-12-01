@@ -1,0 +1,54 @@
+# Production environment values
+replicaCount: 3
+
+image:
+  tag: "0.1.0"
+  pullPolicy: Always
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: sreagent.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: sreagent-tls
+      hosts:
+        - sreagent.example.com
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics"
+
+app:
+  geminiModel: "gemini-2.0-flash"
+
+kubernetes-mcp-server:
+  enabled: true
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
