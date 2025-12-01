@@ -26,7 +26,15 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     kubectl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
+
+# Install kubernetes-mcp-server binary for stdio transport
+# Download from GitHub releases or use the same image
+RUN wget -q -O /usr/local/bin/kubernetes-mcp-server \
+    https://github.com/containers/kubernetes-mcp-server/releases/latest/download/kubernetes-mcp-server-linux-amd64 \
+    && chmod +x /usr/local/bin/kubernetes-mcp-server \
+    || echo "Warning: Could not download kubernetes-mcp-server binary"
 
 # Copy Python packages from builder
 COPY --from=builder /root/.local /root/.local
@@ -43,11 +51,12 @@ ENV PYTHONPATH=/app:${PYTHONPATH}
 # Expose port
 EXPOSE 8000
 
-# Health check
+# Health check - ADK web interface root endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/ || exit 1
 
-# Run the application
+# Run ADK web interface
+# ADK web expects agents in <agents_dir>/backend/agent.py with root_agent
 WORKDIR /app
-CMD ["python", "-m", "uvicorn", "backend.services.sreagent.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["adk", "web", ".", "--port", "8000", "--host", "0.0.0.0"]
 

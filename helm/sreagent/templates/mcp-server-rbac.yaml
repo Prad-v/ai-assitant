@@ -1,0 +1,44 @@
+{{- if index .Values "kubernetes-mcp-server" "enabled" }}
+# ClusterRole for kubernetes-mcp-server to read namespaces and other cluster resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sreagent.fullname" . }}-mcp-server-reader
+  labels:
+    {{- include "sreagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-server
+rules:
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "watch", "list"]
+---
+# ClusterRoleBinding to grant the kubernetes-mcp-server service account the necessary permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sreagent.fullname" . }}-mcp-server-reader
+  labels:
+    {{- include "sreagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-server
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-kubernetes-mcp-server
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "sreagent.fullname" . }}-mcp-server-reader
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+

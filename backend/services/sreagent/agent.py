@@ -2,39 +2,127 @@
 
 import os
 from google.adk.agents import Agent
-from typing import List, Optional
+from typing import List, Optional, Union
 
-# GoogleTool may not be directly importable - will handle in mcp_client
+# Import ADK's native McpToolset as per ADK documentation:
+# https://google.github.io/adk-docs/tools-custom/mcp-tools/
 try:
-    from google.adk.tools import GoogleTool
+    from google.adk.tools import McpToolset
+    from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams, StreamableHTTPConnectionParams
 except ImportError:
-    # Fallback if GoogleTool is not available
-    GoogleTool = None
+    McpToolset = None
+    SseConnectionParams = None
+    StreamableHTTPConnectionParams = None
 
-# Get model from environment or use default
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+# Import LiteLLM for OpenAI support
+try:
+    from google.adk.models.lite_llm import LiteLlm
+except ImportError:
+    LiteLlm = None
+
+# Get model configuration from environment
+MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "gemini")  # gemini or openai
+MODEL_NAME = os.getenv("MODEL_NAME", None)
+
+# Determine model based on provider
+if MODEL_NAME:
+    MODEL = MODEL_NAME
+elif MODEL_PROVIDER == "openai":
+    MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
+else:
+    MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
 APP_NAME = os.getenv("APP_NAME", "sreagent")
 AGENT_NAME = os.getenv("AGENT_NAME", "k8s_troubleshooting_agent")
 
+# MCP server configuration
+MCP_SERVER_HOST = os.getenv("MCP_SERVER_HOST", "kubernetes-mcp-server")
+MCP_SERVER_PORT = int(os.getenv("MCP_SERVER_PORT", "8080"))
+MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "http")  # stdio or http
 
-def create_sre_agent(mcp_tools: Optional[List] = None) -> Agent:
+
+def create_sre_agent() -> Agent:
     """
     Create the SRE troubleshooting agent with MCP tools integration.
     
-    Args:
-        mcp_tools: List of MCP tools to register with the agent
-        
+    Uses ADK's native McpToolset directly as per ADK documentation:
+    https://google.github.io/adk-docs/tools-custom/mcp-tools/#example-1-file-system-mcp-server
+    
     Returns:
         Configured ADK Agent instance
     """
     tools = []
     
-    # Add MCP tools if provided
-    if mcp_tools:
-        tools.extend(mcp_tools)
+    # Add MCP tools using ADK's native McpToolset directly
+    # This follows the pattern from ADK documentation
+    if McpToolset is not None:
+        try:
+            if MCP_TRANSPORT == "http":
+                # Use SSE connection for kubernetes-mcp-server
+                sse_url = f"http://{MCP_SERVER_HOST}:{MCP_SERVER_PORT}/sse"
+                
+                # Try SseConnectionParams first (for SSE servers like kubernetes-mcp-server)
+                if SseConnectionParams is not None:
+                    try:
+                        mcp_toolset = McpToolset(
+                            connection_params=SseConnectionParams(url=sse_url)
+                        )
+                        tools.append(mcp_toolset)
+                    except Exception:
+                        # Fallback to StreamableHTTPConnectionParams
+                        if StreamableHTTPConnectionParams is not None:
+                            mcp_toolset = McpToolset(
+                                connection_params=StreamableHTTPConnectionParams(url=sse_url)
+                            )
+                            tools.append(mcp_toolset)
+                elif StreamableHTTPConnectionParams is not None:
+                    mcp_toolset = McpToolset(
+                        connection_params=StreamableHTTPConnectionParams(url=sse_url)
+                    )
+                    tools.append(mcp_toolset)
+            elif MCP_TRANSPORT == "stdio":
+                # Use stdio transport
+                from mcp import StdioServerParameters
+                try:
+                    from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+                    mcp_toolset = McpToolset(
+                        connection_params=StdioConnectionParams(
+                            server_params=StdioServerParameters(
+                                command="kubernetes-mcp-server",
+                                args=[],
+                            )
+                        )
+                    )
+                    tools.append(mcp_toolset)
+                except ImportError:
+                    # Fallback to StdioServerParameters directly
+                    mcp_toolset = McpToolset(
+                        connection_params=StdioServerParameters(
+                            command="kubernetes-mcp-server",
+                            args=[],
+                        )
+                    )
+                    tools.append(mcp_toolset)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to create McpToolset: {e}")
+    
+    # Configure model based on provider
+    # For OpenAI: Use LiteLLM wrapper with "openai/gpt-4" format
+    # For Gemini: Use model name directly (native ADK support)
+    if MODEL_PROVIDER == "openai" and LiteLlm is not None:
+        # Use LiteLLM wrapper for OpenAI models
+        # Format: "openai/gpt-4", "openai/gpt-4-turbo", etc.
+        model_name = f"openai/{MODEL}" if not MODEL.startswith("openai/") else MODEL
+        model = LiteLlm(model=model_name)
+    else:
+        # Use model name directly for Gemini (native ADK support)
+        model_name = MODEL
+        model = model_name
     
     agent = Agent(
-        model=MODEL,
+        model=model,
         name=AGENT_NAME,
         description=(
             "A specialized Kubernetes troubleshooting agent that helps diagnose "

@@ -2,6 +2,9 @@
 google-adk>=0.1.0
 google-genai>=0.1.0
 
+# LiteLLM for OpenAI and other model support
+litellm>=1.0.0
+
 # Web framework
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
@@ -16,4 +19,5 @@ kubernetes>=28.0.0
 # Utilities
 python-dotenv>=1.0.0
 pyyaml>=6.0
+httpx>=0.25.0  # For HTTP MCP transport
 

@@ -22,7 +22,15 @@ ingress:
           pathType: Prefix
 
 app:
+  modelProvider: "openai"
+  modelName: "gpt-4"
   geminiModel: "gemini-2.0-flash"
+  openaiModel: "gpt-4"
+
+openai:
+  secretName: "openai-api-key"
+  secretKey: "api-key"
+  apiKey: "sk-dummy-key-replace-with-real-key"
 
 kubernetes-mcp-server:
   enabled: true

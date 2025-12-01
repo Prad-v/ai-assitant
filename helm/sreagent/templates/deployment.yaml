@@ -40,8 +40,20 @@ spec:
           env:
             - name: APP_NAME
               value: {{ .Values.app.name | quote }}
+            - name: MODEL_PROVIDER
+              value: {{ .Values.app.modelProvider | quote }}
+            {{- if .Values.app.modelName }}
+            - name: MODEL_NAME
+              value: {{ .Values.app.modelName | quote }}
+            {{- else }}
+            {{- if eq .Values.app.modelProvider "openai" }}
+            - name: OPENAI_MODEL
+              value: {{ .Values.app.openaiModel | quote }}
+            {{- else }}
             - name: GEMINI_MODEL
               value: {{ .Values.app.geminiModel | quote }}
+            {{- end }}
+            {{- end }}
             - name: HOST
               value: {{ .Values.app.host | quote }}
             - name: PORT
@@ -52,6 +64,13 @@ spec:
               value: {{ .Values.mcp.serverPort | quote }}
             - name: MCP_TRANSPORT
               value: {{ .Values.mcp.transport | quote }}
+            {{- if eq .Values.app.modelProvider "openai" }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ (index .Values "openai" | default dict).secretName | default "openai-api-key" }}
+                  key: {{ (index .Values "openai" | default dict).secretKey | default "api-key" }}
+            {{- end }}
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -64,7 +83,7 @@ spec:
             {{- end }}
           livenessProbe:
             httpGet:
-              path: /health
+              path: /
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10
@@ -72,7 +91,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /health
+              path: /
               port: http
             initialDelaySeconds: 10
             periodSeconds: 5

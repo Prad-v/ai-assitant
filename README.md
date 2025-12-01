@@ -6,7 +6,8 @@ A Kubernetes troubleshooting chat agent built with Google ADK that integrates wi
 
 - **Intelligent K8s Troubleshooting**: AI-powered assistant for diagnosing Kubernetes cluster issues
 - **MCP Integration**: Seamless integration with kubernetes-mcp-server for Kubernetes operations
-- **Web Interface**: REST API for interacting with the agent
+- **ADK Web Interface**: Built-in web UI for interactive chat with the agent (via `adk web`)
+- **REST API**: Programmatic access via FastAPI endpoints
 - **Helm Deployment**: Production-ready Helm chart with kubernetes-mcp-server as subchart
 - **Docker Support**: Containerized application with Docker Compose for local development
 
@@ -27,6 +28,9 @@ docker compose up -d
 
 # Test the agent
 curl http://localhost:8000/health
+
+# Access ADK web interface
+# Open browser to http://localhost:8000
 ```
 
 ### Kubernetes Deployment
@@ -47,7 +51,12 @@ helm install sreagent ./helm/sreagent \
   --namespace sreagent \
   --create-namespace \
   --set image.repository=your-registry/sreagent \
-  --set image.tag=0.1.0
+  --set image.tag=0.1.0 \
+  --set ingress.enabled=true
+
+# Access the web interface
+# Port forward: kubectl port-forward -n sreagent svc/sreagent 8000:80
+# Or via ingress (if configured): http://sreagent.local
 ```
 
 ## Project Structure
@@ -84,6 +93,8 @@ helm install sreagent ./helm/sreagent \
 - [Setup Guide](docs/sreagent-setup.md) - Installation and deployment instructions
 - [MCP Integration](docs/mcp-integration.md) - MCP protocol integration details
 - [API Reference](docs/api-reference.md) - REST API documentation
+- [ADK Web Interface](docs/adk-web-interface.md) - Web UI usage guide
+- [OpenAI Configuration](docs/openai-configuration.md) - OpenAI model setup guide
 
 ## Testing
 
@@ -102,12 +113,16 @@ pytest tests/test_mcp_tools.py -v
 
 Key environment variables:
 
+- `MODEL_PROVIDER`: Model provider - "gemini" or "openai" (default: gemini)
+- `MODEL_NAME`: Specific model name (optional, uses provider default if not set)
 - `GEMINI_MODEL`: Gemini model to use (default: gemini-2.0-flash)
+- `OPENAI_MODEL`: OpenAI model to use (default: gpt-4)
+- `OPENAI_API_KEY`: OpenAI API key (from Kubernetes secret)
 - `MCP_SERVER_HOST`: MCP server hostname (default: kubernetes-mcp-server)
 - `MCP_SERVER_PORT`: MCP server port (default: 8080)
 - `GOOGLE_APPLICATION_CREDENTIALS`: Path to Google Cloud credentials
 
-See [Setup Guide](docs/sreagent-setup.md) for detailed configuration options.
+See [Setup Guide](docs/sreagent-setup.md) and [OpenAI Configuration](docs/openai-configuration.md) for detailed configuration options.
 
 ## License
 
