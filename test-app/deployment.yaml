@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-app
+  namespace: default
+  labels:
+    app: test-app
+    purpose: sre-agent-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-app
+  template:
+    metadata:
+      labels:
+        app: test-app
+        purpose: sre-agent-test
+    spec:
+      containers:
+      - name: test-app
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        # This ConfigMap doesn't exist - will cause pod to be in Pending state
+        envFrom:
+        - configMapRef:
+            name: missing-configmap
+          prefix: APP_
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+

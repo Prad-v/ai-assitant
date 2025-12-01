@@ -45,14 +45,6 @@ spec:
             {{- if .Values.app.modelName }}
             - name: MODEL_NAME
               value: {{ .Values.app.modelName | quote }}
-            {{- else }}
-            {{- if eq .Values.app.modelProvider "openai" }}
-            - name: OPENAI_MODEL
-              value: {{ .Values.app.openaiModel | quote }}
-            {{- else }}
-            - name: GEMINI_MODEL
-              value: {{ .Values.app.geminiModel | quote }}
-            {{- end }}
             {{- end }}
             - name: HOST
               value: {{ .Values.app.host | quote }}
@@ -64,12 +56,27 @@ spec:
               value: {{ .Values.mcp.serverPort | quote }}
             - name: MCP_TRANSPORT
               value: {{ .Values.mcp.transport | quote }}
+            {{- if .Values.app.maxTokens }}
+            - name: MAX_TOKENS
+              value: {{ .Values.app.maxTokens | quote }}
+            {{- end }}
+            {{- if .Values.app.temperature }}
+            - name: TEMPERATURE
+              value: {{ .Values.app.temperature | quote }}
+            {{- end }}
             {{- if eq .Values.app.modelProvider "openai" }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ (index .Values "openai" | default dict).secretName | default "openai-api-key" }}
-                  key: {{ (index .Values "openai" | default dict).secretKey | default "api-key" }}
+                  name: {{ (index .Values.model "openai" | default dict).secretName | default "openai-api-key" }}
+                  key: {{ (index .Values.model "openai" | default dict).secretKey | default "api-key" }}
+            {{- end }}
+            {{- if eq .Values.app.modelProvider "gemini" }}
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ (index .Values.model "gemini" | default dict).secretName | default "gemini-api-key" }}
+                  key: {{ (index .Values.model "gemini" | default dict).secretKey | default "api-key" }}
             {{- end }}
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}

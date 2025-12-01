@@ -41,14 +41,20 @@ podAnnotations:
 
 app:
   modelProvider: "openai"
-  modelName: "gpt-4"
-  geminiModel: "gemini-2.0-flash"
-  openaiModel: "gpt-4"
+  modelName: "gpt-4-turbo"  # Using standardized LiteLLM format
+  maxTokens: 3000  # Token optimization for production
+  temperature: 0.5
 
-openai:
-  secretName: "openai-api-key"
-  secretKey: "api-key"
-  apiKey: "sk-dummy-key-replace-with-real-key"  # Replace with real key in production
+model:
+  openai:
+    secretName: "openai-api-key"
+    secretKey: "api-key"
+    apiKey: "sk-dummy-key-replace-with-real-key"  # Replace with real key in production
+  
+  gemini:
+    secretName: "gemini-api-key"
+    secretKey: "api-key"
+    apiKey: "dummy-gemini-key-replace-with-real-key"  # Replace with real key in production
 
 kubernetes-mcp-server:
   enabled: true

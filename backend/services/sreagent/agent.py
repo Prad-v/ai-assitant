@@ -21,16 +21,37 @@ except ImportError:
     LiteLlm = None
 
 # Get model configuration from environment
-MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "gemini")  # gemini or openai
+# Standardized through LiteLLM - supports all providers
+MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "gemini")  # gemini, openai, anthropic, etc.
 MODEL_NAME = os.getenv("MODEL_NAME", None)
 
+# API keys from environment (should be set from K8s secrets)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", None)  # For Gemini via LiteLLM
+
+# Token optimization settings
+MAX_TOKENS = os.getenv("MAX_TOKENS", None)
+TEMPERATURE = os.getenv("TEMPERATURE", None)
+
 # Determine model based on provider
+# LiteLLM format: "provider/model-name" (e.g., "openai/gpt-4", "gemini/gemini-2.0-flash")
 if MODEL_NAME:
-    MODEL = MODEL_NAME
+    # If MODEL_NAME already includes provider prefix, use as-is
+    # Otherwise, add provider prefix
+    if "/" in MODEL_NAME:
+        MODEL = MODEL_NAME
+    else:
+        MODEL = f"{MODEL_PROVIDER}/{MODEL_NAME}"
 elif MODEL_PROVIDER == "openai":
-    MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
+    model_name = os.getenv("OPENAI_MODEL", "gpt-4-turbo")
+    MODEL = f"openai/{model_name}"
+elif MODEL_PROVIDER == "gemini":
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    MODEL = f"gemini/{model_name}"
 else:
-    MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    # For other providers, use provider/model format
+    model_name = os.getenv("MODEL_NAME", "default")
+    MODEL = f"{MODEL_PROVIDER}/{model_name}"
 
 APP_NAME = os.getenv("APP_NAME", "sreagent")
 AGENT_NAME = os.getenv("AGENT_NAME", "k8s_troubleshooting_agent")
@@ -108,18 +129,42 @@ def create_sre_agent() -> Agent:
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to create McpToolset: {e}")
     
-    # Configure model based on provider
-    # For OpenAI: Use LiteLLM wrapper with "openai/gpt-4" format
-    # For Gemini: Use model name directly (native ADK support)
-    if MODEL_PROVIDER == "openai" and LiteLlm is not None:
-        # Use LiteLLM wrapper for OpenAI models
-        # Format: "openai/gpt-4", "openai/gpt-4-turbo", etc.
-        model_name = f"openai/{MODEL}" if not MODEL.startswith("openai/") else MODEL
-        model = LiteLlm(model=model_name)
-    else:
-        # Use model name directly for Gemini (native ADK support)
-        model_name = MODEL
-        model = model_name
+    # Configure model using LiteLLM (standardized for all providers)
+    # LiteLLM supports: openai, gemini, anthropic, etc.
+    # Format: "provider/model-name" (e.g., "openai/gpt-4", "gemini/gemini-2.0-flash")
+    if LiteLlm is None:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("LiteLLM is not available. Please ensure litellm is installed.")
+        raise ImportError("LiteLLM is required for model configuration")
+    
+    # Build LiteLLM configuration with token optimization
+    lite_llm_kwargs = {"model": MODEL}
+    
+    # Set API keys if provided (from K8s secrets)
+    if OPENAI_API_KEY:
+        lite_llm_kwargs["api_key"] = OPENAI_API_KEY
+    elif GEMINI_API_KEY:
+        lite_llm_kwargs["api_key"] = GEMINI_API_KEY
+    
+    # Add token optimization settings
+    if MAX_TOKENS:
+        try:
+            lite_llm_kwargs["max_tokens"] = int(MAX_TOKENS)
+        except ValueError:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Invalid MAX_TOKENS value: {MAX_TOKENS}")
+    
+    if TEMPERATURE:
+        try:
+            lite_llm_kwargs["temperature"] = float(TEMPERATURE)
+        except ValueError:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Invalid TEMPERATURE value: {TEMPERATURE}")
+    
+    model = LiteLlm(**lite_llm_kwargs)
     
     agent = Agent(
         model=model,
@@ -130,26 +175,25 @@ def create_sre_agent() -> Agent:
             "analyze logs, inspect resources, and perform Helm operations."
         ),
         instruction="""\
-You are an expert Kubernetes Site Reliability Engineer (SRE) assistant. Your role is to help 
-users troubleshoot and resolve issues in Kubernetes clusters.
+You are a Kubernetes SRE assistant. Diagnose and resolve K8s issues efficiently.
 
-Key capabilities:
-1. Execute kubectl commands to inspect cluster state
-2. Analyze pod logs and events
-3. Check resource health and status
-4. Perform Helm chart operations
-5. Diagnose common K8s issues (pod failures, networking, resource constraints)
-6. Provide actionable recommendations
+EFFICIENCY RULES (CRITICAL for token optimization):
+- Use specific queries: pods_get <name> -n <namespace> (not pods_list all)
+- Limit log retrieval: pods_logs <name> --tail=50 (max 100 lines)
+- Query targeted resources, avoid listing all namespaces
+- Use field selectors for events: events_list with fieldSelector
+- Cache information: don't repeat identical queries
+- Request only necessary fields, avoid full resource dumps
 
-When troubleshooting:
-- Start by gathering information about the affected resources
-- Check pod status, events, and logs
-- Verify resource quotas and limits
-- Examine service endpoints and networking
-- Look for common patterns (OOMKilled, CrashLoopBackOff, ImagePullBackOff, etc.)
+Troubleshooting flow:
+1. pods_get <specific-name> -n <namespace> (targeted pod status)
+2. events_list with fieldSelector (targeted events, not all)
+3. pods_logs <name> --tail=50 (limited logs, not full history)
+4. resources_get only if needed (specific resource, not list all)
 
-Always explain what you're doing and why. Provide clear, step-by-step guidance.
-Use the available tools to gather information before making recommendations.
+Common issues: OOMKilled, CrashLoopBackOff, ImagePullBackOff, CreateContainerConfigError, ImagePullBackOff.
+
+Provide concise root cause analysis. Be selective with data requests to minimize token usage.
 """,
         tools=tools if tools else [],
     )

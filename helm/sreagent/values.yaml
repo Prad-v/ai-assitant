@@ -69,17 +69,19 @@ affinity: {}
 # Application configuration
 app:
   name: sreagent
-  # Model provider: "gemini" or "openai"
-  # Note: ADK primarily supports Gemini models. OpenAI support may require additional configuration.
+  # Model provider: "gemini", "openai", "anthropic", etc.
+  # All models are configured through LiteLLM (standardized approach)
   modelProvider: "gemini"
-  # Model name (provider-specific)
+  # Model name (without provider prefix - will be formatted as "provider/model-name")
   # For Gemini: "gemini-2.0-flash", "gemini-1.5-pro", etc.
   # For OpenAI: "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", etc.
-  modelName: "gemini-2.0-flash"  # Default to gemini-2.0-flash (ADK native support)
-  geminiModel: "gemini-2.0-flash"  # Default Gemini model (deprecated, use modelName)
-  openaiModel: "gpt-4"  # Default OpenAI model (deprecated, use modelName)
+  # If you provide full format like "openai/gpt-4", it will be used as-is
+  modelName: "gemini-2.0-flash"  # Default model
   host: "0.0.0.0"
   port: 8000
+  # Token optimization settings (applies to all models via LiteLLM)
+  maxTokens: null  # Optional: limit response tokens (e.g., 2000). null = no limit
+  temperature: null  # Optional: control randomness (0.0-2.0). Lower = more focused. null = default
 
 # MCP server configuration
 mcp:
@@ -92,24 +94,35 @@ env: []
   # - name: CUSTOM_VAR
   #   value: "custom_value"
 
-# Secrets (should be provided via external secret management)
+# Model API key configuration (standardized through LiteLLM)
+# API keys are supplied via Kubernetes secrets
+model:
+  # Provider-specific API key secrets
+  # For OpenAI
+  openai:
+    # Secret name containing OpenAI API key
+    secretName: "openai-api-key"
+    # Key name within the secret
+    secretKey: "api-key"
+    # Dummy value for secret creation (replace with real key in production)
+    # In production, create manually: kubectl create secret generic openai-api-key --from-literal=api-key=YOUR_KEY
+    apiKey: "sk-dummy-key-replace-with-real-key"
+  
+  # For Gemini (via LiteLLM)
+  gemini:
+    # Secret name containing Gemini API key
+    secretName: "gemini-api-key"
+    # Key name within the secret
+    secretKey: "api-key"
+    # Dummy value for secret creation (replace with real key in production)
+    # In production, create manually: kubectl create secret generic gemini-api-key --from-literal=api-key=YOUR_KEY
+    apiKey: "dummy-gemini-key-replace-with-real-key"
+
+# Legacy secrets configuration (for backward compatibility)
 secrets: []
   # - name: GOOGLE_APPLICATION_CREDENTIALS
   #   secretName: google-credentials
   #   secretKey: key.json
-  # - name: OPENAI_API_KEY
-  #   secretName: openai-api-key
-  #   secretKey: api-key
-
-# OpenAI API key secret configuration
-openai:
-  # Secret name
-  secretName: "openai-api-key"
-  # Secret key name in the secret
-  secretKey: "api-key"
-  # API key value (dummy value by default, replace with real key in production)
-  # In production, create the secret manually: kubectl create secret generic openai-api-key --from-literal=api-key=YOUR_KEY
-  apiKey: "sk-dummy-key-replace-with-real-key"
 
 # Kubernetes MCP Server subchart configuration
 kubernetes-mcp-server:
