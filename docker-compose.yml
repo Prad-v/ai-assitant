@@ -28,6 +28,21 @@ services:
       - sreagent-network
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sreagent-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000/api
+    depends_on:
+      - sreagent
+    networks:
+      - sreagent-network
+    restart: unless-stopped
+
   kubernetes-mcp-server:
     image: quay.io/kubernetes-mcp-server/kubernetes-mcp-server:latest
     container_name: kubernetes-mcp-server

@@ -14,6 +14,12 @@ DOCKER_REGISTRY ?= localhost:5000
 IMAGE_REPO ?= $(DOCKER_REGISTRY)/$(IMAGE_NAME)
 FULL_IMAGE := $(IMAGE_REPO):$(IMAGE_TAG)
 
+# Frontend variables
+FRONTEND_IMAGE_NAME := sreagent-frontend
+FRONTEND_IMAGE_TAG := $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
+FRONTEND_IMAGE_REPO ?= $(DOCKER_REGISTRY)/$(FRONTEND_IMAGE_NAME)
+FRONTEND_FULL_IMAGE := $(FRONTEND_IMAGE_REPO):$(FRONTEND_IMAGE_TAG)
+
 # Helm variables
 HELM_CHART := helm/sreagent
 RELEASE_NAME ?= sreagent
@@ -74,12 +80,25 @@ docker-build:
 	@docker build -t $(FULL_IMAGE) -t $(IMAGE_REPO):latest .
 	@echo "Docker image built successfully: $(FULL_IMAGE)"
 
+# Build Frontend Docker image
+frontend-docker-build:
+	@echo "Building Frontend Docker image: $(FRONTEND_FULL_IMAGE)"
+	@docker build -t $(FRONTEND_FULL_IMAGE) -t $(FRONTEND_IMAGE_REPO):latest ./frontend
+	@echo "Frontend Docker image built successfully: $(FRONTEND_FULL_IMAGE)"
+
 # Push Docker image
 docker-push: docker-build
 	@echo "Pushing Docker image: $(FULL_IMAGE)"
 	@docker push $(FULL_IMAGE)
 	@docker push $(IMAGE_REPO):latest
 	@echo "Docker image pushed successfully"
+
+# Push Frontend Docker image
+frontend-docker-push: frontend-docker-build
+	@echo "Pushing Frontend Docker image: $(FRONTEND_FULL_IMAGE)"
+	@docker push $(FRONTEND_FULL_IMAGE)
+	@docker push $(FRONTEND_IMAGE_REPO):latest
+	@echo "Frontend Docker image pushed successfully"
 
 # Update Helm dependencies
 helm-deps:
@@ -105,37 +124,48 @@ helm-upgrade: helm-deps
 		--namespace $(NAMESPACE) \
 		--set image.repository=$(IMAGE_REPO) \
 		--set image.tag=$(IMAGE_TAG) \
+		--set frontend.image.repository=$(FRONTEND_IMAGE_REPO) \
+		--set frontend.image.tag=$(FRONTEND_IMAGE_TAG) \
 		$(if $(wildcard $(VALUES_FILE)),-f $(VALUES_FILE),) \
 		--install
 	@echo "Helm chart upgraded successfully"
 
 # Deploy to Kubernetes (build, push, and deploy)
-deploy: docker-build docker-push helm-upgrade
+deploy: docker-build docker-push frontend-docker-build frontend-docker-push helm-upgrade
 	@echo "Deployment completed successfully!"
-	@echo "Image: $(FULL_IMAGE)"
+	@echo "Backend Image: $(FULL_IMAGE)"
+	@echo "Frontend Image: $(FRONTEND_FULL_IMAGE)"
 	@echo "Release: $(RELEASE_NAME)"
 	@echo "Namespace: $(NAMESPACE)"
 	@echo ""
 	@echo "To check status, run:"
 	@echo "  kubectl get pods -n $(NAMESPACE)"
 	@echo "  kubectl get svc -n $(NAMESPACE)"
+	@echo ""
+	@echo "To access the React UI:"
+	@echo "  kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME)-frontend 3000:3000"
 
 # Deploy all (build, test, push, and deploy)
-deploy-all: test docker-build docker-push helm-upgrade
+deploy-all: test docker-build docker-push frontend-docker-build frontend-docker-push helm-upgrade
 	@echo "Full deployment completed successfully!"
-	@echo "Image: $(FULL_IMAGE)"
+	@echo "Backend Image: $(FULL_IMAGE)"
+	@echo "Frontend Image: $(FRONTEND_FULL_IMAGE)"
 	@echo "Release: $(RELEASE_NAME)"
 	@echo "Namespace: $(NAMESPACE)"
 	@echo ""
 	@echo "To check status, run:"
 	@echo "  kubectl get pods -n $(NAMESPACE)"
 	@echo "  kubectl get svc -n $(NAMESPACE)"
-	@echo "  kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME) 8000:80"
+	@echo ""
+	@echo "To access services:"
+	@echo "  React UI: kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME)-frontend 3000:3000"
+	@echo "  ADK Web UI: kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME) 8000:80"
 
 # Build everything (local build without push)
-build: test docker-build
+build: test docker-build frontend-docker-build
 	@echo "Build completed successfully!"
-	@echo "Image: $(FULL_IMAGE)"
+	@echo "Backend Image: $(FULL_IMAGE)"
+	@echo "Frontend Image: $(FRONTEND_FULL_IMAGE)"
 
 # Show help message
 help:
@@ -149,8 +179,10 @@ help:
 	@echo "  make clean         - Remove virtual environment"
 	@echo ""
 	@echo "Docker:"
-	@echo "  make docker-build  - Build Docker image"
-	@echo "  make docker-push   - Build and push Docker image"
+	@echo "  make docker-build          - Build backend Docker image"
+	@echo "  make docker-push           - Build and push backend Docker image"
+	@echo "  make frontend-docker-build - Build frontend Docker image"
+	@echo "  make frontend-docker-push  - Build and push frontend Docker image"
 	@echo ""
 	@echo "Helm:"
 	@echo "  make helm-deps     - Update Helm chart dependencies"

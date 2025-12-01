@@ -37,50 +37,30 @@ spec:
             - name: http
               containerPort: {{ .Values.app.port }}
               protocol: TCP
+          envFrom:
+            # Load all configuration from ConfigMap
+            - configMapRef:
+                name: {{ include "sreagent.fullname" . }}-config
           env:
-            - name: APP_NAME
-              value: {{ .Values.app.name | quote }}
-            - name: MODEL_PROVIDER
-              value: {{ .Values.app.modelProvider | quote }}
-            {{- if .Values.app.modelName }}
-            - name: MODEL_NAME
-              value: {{ .Values.app.modelName | quote }}
-            {{- end }}
-            - name: HOST
-              value: {{ .Values.app.host | quote }}
-            - name: PORT
-              value: {{ .Values.app.port | quote }}
-            - name: MCP_SERVER_HOST
-              value: {{ .Values.mcp.serverHost | quote }}
-            - name: MCP_SERVER_PORT
-              value: {{ .Values.mcp.serverPort | quote }}
-            - name: MCP_TRANSPORT
-              value: {{ .Values.mcp.transport | quote }}
-            {{- if .Values.app.maxTokens }}
-            - name: MAX_TOKENS
-              value: {{ .Values.app.maxTokens | quote }}
-            {{- end }}
-            {{- if .Values.app.temperature }}
-            - name: TEMPERATURE
-              value: {{ .Values.app.temperature | quote }}
-            {{- end }}
+            # API keys from secrets (not in ConfigMap for security)
             {{- if eq .Values.app.modelProvider "openai" }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ (index .Values.model "openai" | default dict).secretName | default "openai-api-key" }}
-                  key: {{ (index .Values.model "openai" | default dict).secretKey | default "api-key" }}
-            {{- end }}
-            {{- if eq .Values.app.modelProvider "gemini" }}
+                  name: {{ .Values.model.secretName | default "model-api-key" }}
+                  key: {{ .Values.model.secretKey | default "api-key" }}
+            {{- else if eq .Values.app.modelProvider "gemini" }}
             - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ (index .Values.model "gemini" | default dict).secretName | default "gemini-api-key" }}
-                  key: {{ (index .Values.model "gemini" | default dict).secretKey | default "api-key" }}
+                  name: {{ .Values.model.secretName | default "model-api-key" }}
+                  key: {{ .Values.model.secretKey | default "api-key" }}
             {{- end }}
+            # Additional environment variables (if any)
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+            # Additional secrets (if any)
             {{- range .Values.secrets }}
             - name: {{ .name }}
               valueFrom:

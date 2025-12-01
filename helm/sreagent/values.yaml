@@ -94,35 +94,61 @@ env: []
   # - name: CUSTOM_VAR
   #   value: "custom_value"
 
-# Model API key configuration (standardized through LiteLLM)
-# API keys are supplied via Kubernetes secrets
+# Generic Model API key configuration (standardized through LiteLLM)
+# This single secret can hold either OpenAI or Gemini API key
+# The agent will use the appropriate key based on modelProvider setting
 model:
-  # Provider-specific API key secrets
-  # For OpenAI
-  openai:
-    # Secret name containing OpenAI API key
-    secretName: "openai-api-key"
-    # Key name within the secret
-    secretKey: "api-key"
-    # Dummy value for secret creation (replace with real key in production)
-    # In production, create manually: kubectl create secret generic openai-api-key --from-literal=api-key=YOUR_KEY
-    apiKey: "sk-dummy-key-replace-with-real-key"
-  
-  # For Gemini (via LiteLLM)
-  gemini:
-    # Secret name containing Gemini API key
-    secretName: "gemini-api-key"
-    # Key name within the secret
-    secretKey: "api-key"
-    # Dummy value for secret creation (replace with real key in production)
-    # In production, create manually: kubectl create secret generic gemini-api-key --from-literal=api-key=YOUR_KEY
-    apiKey: "dummy-gemini-key-replace-with-real-key"
+  # Secret name for the generic API key
+  secretName: "model-api-key"
+  # Key name within the secret
+  secretKey: "api-key"
+  # API key value (replace with real key in production)
+  # This will be used for whichever provider is configured in app.modelProvider
+  # In production, create manually:
+  #   kubectl create secret generic model-api-key --from-literal=api-key=YOUR_KEY
+  # Or update the secret:
+  #   kubectl create secret generic model-api-key --from-literal=api-key=YOUR_KEY --dry-run=client -o yaml | kubectl apply -f -
+  apiKey: "dummy-api-key-replace-with-real-key"
 
 # Legacy secrets configuration (for backward compatibility)
 secrets: []
   # - name: GOOGLE_APPLICATION_CREDENTIALS
   #   secretName: google-credentials
   #   secretKey: key.json
+
+# Frontend React UI configuration
+frontend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: sreagent-frontend
+    pullPolicy: IfNotPresent
+    tag: "0.1.0"
+  port: 3000
+  service:
+    type: ClusterIP
+    port: 3000
+  ingress:
+    enabled: false
+    className: "nginx"
+    annotations: {}
+    hosts:
+      - host: sreagent-ui.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
 
 # Kubernetes MCP Server subchart configuration
 kubernetes-mcp-server:

@@ -13,7 +13,6 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from .agent import create_sre_agent
-from .mcp_client import create_mcp_tools
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -75,13 +74,10 @@ async def startup_event():
         # Initialize session service
         session_service = InMemorySessionService()
         
-        # Create MCP tools
-        logger.info("Connecting to MCP server...")
-        mcp_tools = await create_mcp_tools()
-        logger.info(f"Connected to MCP server. Found {len(mcp_tools)} tools.")
-        
-        # Create agent with MCP tools
-        agent = create_sre_agent(mcp_tools=mcp_tools if mcp_tools else None)
+        # Create agent (MCP tools are initialized internally)
+        logger.info("Initializing agent with MCP tools...")
+        agent = create_sre_agent()
+        logger.info(f"Agent initialized with {len(agent.tools) if agent.tools else 0} tools.")
         
         # Create runner
         runner = Runner(
@@ -95,13 +91,13 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to initialize agent: {e}")
         # Create agent without MCP tools as fallback
-        agent = create_sre_agent(mcp_tools=None)
+        agent = create_sre_agent()
         runner = Runner(
             agent=agent,
             app_name=APP_NAME,
             session_service=InMemorySessionService(),
         )
-        logger.warning("Agent initialized without MCP tools")
+        logger.warning("Agent initialized (MCP tools may not be available)")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -126,20 +122,40 @@ async def chat(request: ChatRequest):
         if not session_id:
             session_id = f"session_{request.user_id}"
         
-        # Create session if it doesn't exist
+        # Ensure session exists before running agent
+        # The Runner expects the session to already exist, so we must create it first
         try:
             session = await session_service.get_session(
                 app_name=APP_NAME,
                 user_id=request.user_id,
                 session_id=session_id,
             )
-        except Exception:
-            # Create new session
-            session = await session_service.create_session(
+            logger.info(f"Using existing session: {session_id}")
+        except Exception as e:
+            # Create new session if it doesn't exist
+            logger.info(f"Creating new session: {session_id} (error: {e})")
+            try:
+                session = await session_service.create_session(
+                    app_name=APP_NAME,
+                    user_id=request.user_id,
+                    session_id=session_id,
+                )
+                logger.info(f"Session created successfully: {session_id}")
+            except Exception as create_error:
+                logger.error(f"Failed to create session: {create_error}")
+                raise HTTPException(status_code=500, detail=f"Failed to create session: {create_error}")
+        
+        # Verify session exists by trying to get it again
+        try:
+            await session_service.get_session(
                 app_name=APP_NAME,
                 user_id=request.user_id,
                 session_id=session_id,
             )
+            logger.info(f"Session verified: {session_id}")
+        except Exception as verify_error:
+            logger.error(f"Session verification failed: {verify_error}")
+            raise HTTPException(status_code=500, detail=f"Session not available: {verify_error}")
         
         # Create user message
         content = types.Content(
@@ -147,30 +163,93 @@ async def chat(request: ChatRequest):
             parts=[types.Part(text=request.message)],
         )
         
-        # Run agent
-        events = runner.run(
-            user_id=request.user_id,
-            session_id=session_id,
-            new_message=content,
-        )
+        # Run agent using async method to properly handle session access
+        logger.info(f"Running agent for session: {session_id}, user: {request.user_id}")
+        try:
+            # Use run_async instead of run to properly handle async session operations
+            events = []
+            async for event in runner.run_async(
+                user_id=request.user_id,
+                session_id=session_id,
+                new_message=content,
+            ):
+                events.append(event)
+            logger.info(f"Collected {len(events)} events from agent")
+        except ValueError as ve:
+            if "Session not found" in str(ve):
+                logger.error(f"Session not found error: {ve}. Attempting to recreate session...")
+                # Try to create the session again and retry
+                try:
+                    await session_service.create_session(
+                        app_name=APP_NAME,
+                        user_id=request.user_id,
+                        session_id=session_id,
+                    )
+                    logger.info(f"Session recreated, retrying agent run...")
+                    events = []
+                    async for event in runner.run_async(
+                        user_id=request.user_id,
+                        session_id=session_id,
+                        new_message=content,
+                    ):
+                        events.append(event)
+                    logger.info(f"Retry successful, collected {len(events)} events")
+                except Exception as retry_error:
+                    logger.error(f"Retry failed: {retry_error}", exc_info=True)
+                    raise HTTPException(status_code=500, detail=f"Agent execution failed: {retry_error}")
+            else:
+                logger.error(f"ValueError in agent run: {ve}", exc_info=True)
+                raise
+        except Exception as e:
+            logger.error(f"Unexpected error in agent run: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Agent execution failed: {e}")
         
-        # Collect response
+        # Collect response from events
         response_text = ""
+        event_count = 0
         for event in events:
-            if event.is_final_response():
-                response_text = event.content.parts[0].text
+            event_count += 1
+            logger.debug(f"Event {event_count}: {type(event).__name__}, has is_final_response: {hasattr(event, 'is_final_response')}")
+            
+            # Check for final response
+            if hasattr(event, 'is_final_response') and callable(event.is_final_response):
+                if event.is_final_response():
+                    logger.info(f"Found final response event")
+                    if hasattr(event, 'content') and event.content:
+                        if hasattr(event.content, 'parts') and event.content.parts:
+                            if len(event.content.parts) > 0:
+                                if hasattr(event.content.parts[0], 'text'):
+                                    response_text = event.content.parts[0].text
+                                    logger.info(f"Extracted response text: {len(response_text)} chars")
+                                    break
+            
+            # Check for text attribute directly
+            if hasattr(event, 'text') and event.text:
+                response_text = event.text
+                logger.info(f"Found text in event: {len(response_text)} chars")
                 break
+            
+            # Check for message attribute
+            if hasattr(event, 'message') and event.message:
+                if hasattr(event.message, 'text'):
+                    response_text = event.message.text
+                    logger.info(f"Found message text: {len(response_text)} chars")
+                    break
+        
+        logger.info(f"Processed {event_count} events, response length: {len(response_text)}")
         
         if not response_text:
+            logger.warning(f"No response text generated for session: {session_id} after processing {event_count} events")
             response_text = "I received your message but couldn't generate a response."
         
+        logger.info(f"Generated response for session: {session_id}")
         return ChatResponse(
             response=response_text,
             session_id=session_id,
         )
         
     except Exception as e:
-        logger.error(f"Error processing chat request: {e}")
+        logger.error(f"Error processing chat request: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

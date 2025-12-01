@@ -6,10 +6,19 @@ metadata:
     {{- include "sreagent.labels" . | nindent 4 }}
 data:
   APP_NAME: {{ .Values.app.name | quote }}
-  GEMINI_MODEL: {{ .Values.app.geminiModel | quote }}
+  MODEL_PROVIDER: {{ .Values.app.modelProvider | quote }}
+  {{- if .Values.app.modelName }}
+  MODEL_NAME: {{ .Values.app.modelName | quote }}
+  {{- end }}
   HOST: {{ .Values.app.host | quote }}
   PORT: {{ .Values.app.port | quote }}
   MCP_SERVER_HOST: {{ .Values.mcp.serverHost | quote }}
   MCP_SERVER_PORT: {{ .Values.mcp.serverPort | quote }}
   MCP_TRANSPORT: {{ .Values.mcp.transport | quote }}
+  {{- if .Values.app.maxTokens }}
+  MAX_TOKENS: {{ .Values.app.maxTokens | quote }}
+  {{- end }}
+  {{- if .Values.app.temperature }}
+  TEMPERATURE: {{ .Values.app.temperature | quote }}
+  {{- end }}
 

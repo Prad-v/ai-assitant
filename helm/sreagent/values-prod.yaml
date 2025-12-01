@@ -46,15 +46,31 @@ app:
   temperature: 0.5
 
 model:
-  openai:
-    secretName: "openai-api-key"
-    secretKey: "api-key"
-    apiKey: "sk-dummy-key-replace-with-real-key"  # Replace with real key in production
-  
-  gemini:
-    secretName: "gemini-api-key"
-    secretKey: "api-key"
-    apiKey: "dummy-gemini-key-replace-with-real-key"  # Replace with real key in production
+  secretName: "model-api-key"
+  secretKey: "api-key"
+  apiKey: "dummy-api-key-replace-with-real-key"  # Replace with real key in production
+
+frontend:
+  enabled: true
+  replicaCount: 2
+  ingress:
+    enabled: true
+    hosts:
+      - host: sreagent-ui.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: sreagent-ui-tls
+        hosts:
+          - sreagent-ui.example.com
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
 
 kubernetes-mcp-server:
   enabled: true
