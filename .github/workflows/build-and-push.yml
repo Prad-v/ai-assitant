@@ -1,24 +1,44 @@
-name: Build and Push Docker Image
+name: Build and Push Docker Images and Helm Charts
 
 on:
   push:
+    branches:
+      - main  # Trigger on push to main branch
     tags:
-      - 'v*.*.*'  # Trigger on version tags (e.g., v1.0.0, v2.1.3)
+      - 'v*.*.*'  # Also trigger on version tags (e.g., v1.0.0, v2.1.3)
+  workflow_dispatch:  # Allow manual triggering
 
 env:
   REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/kekaflow
+  HELM_REGISTRY: ghcr.io
+  HELM_CHART_PREFIX: ${{ github.repository_owner }}/kekaflow-charts
+  KUBERNETES_NAMESPACE: sreagent
   IMAGE_NAME: ${{ github.repository_owner }}/ai-assistant
 
 jobs:
-  build-and-push:
+  build-images:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
 
+    outputs:
+      image-tag: ${{ steps.sha.outputs.short }}
+      sreagent-image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/sreagent:${{ steps.sha.outputs.short }}
+      cluster-inventory-image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/cluster-inventory:${{ steps.sha.outputs.short }}
+      frontend-image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/sreagent-frontend:${{ steps.sha.outputs.short }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Generate image tag
+        id: sha
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "short=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "full=${{ github.sha }}" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -35,32 +55,162 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels)
-        id: meta
+      - name: Extract metadata for sreagent
+        id: meta-sreagent
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/sreagent
           tags: |
+            type=ref,event=branch
+            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=raw,value=${{ steps.sha.outputs.short }},enable={{is_default_branch}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
-        id: build
+      - name: Build and push sreagent image
+        id: build-sreagent
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.meta-sreagent.outputs.tags }}
+          labels: ${{ steps.meta-sreagent.outputs.labels }}
+          cache-from: type=gha,scope=sreagent
+          cache-to: type=gha,mode=max,scope=sreagent
           build-args: |
             VERSION=${{ github.ref_name }}
             COMMIT_SHA=${{ github.sha }}
 
-      - name: Image digest
-        run: echo "Image pushed with digest ${{ steps.build.outputs.digest }}"
+      - name: Extract metadata for cluster-inventory
+        id: meta-cluster-inventory
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/cluster-inventory
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=${{ steps.sha.outputs.short }},enable={{is_default_branch}}
+            type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Build and push cluster-inventory image
+        id: build-cluster-inventory
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./backend/services/cluster-inventory/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-cluster-inventory.outputs.tags }}
+          labels: ${{ steps.meta-cluster-inventory.outputs.labels }}
+          cache-from: type=gha,scope=cluster-inventory
+          cache-to: type=gha,mode=max,scope=cluster-inventory
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT_SHA=${{ github.sha }}
+
+      - name: Extract metadata for frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/sreagent-frontend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=${{ steps.sha.outputs.short }},enable={{is_default_branch}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push frontend image
+        id: build-frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT_SHA=${{ github.sha }}
+
+      - name: Image digests
+        run: |
+          echo "SRE Agent image: ${{ steps.build-sreagent.outputs.digest }}"
+          echo "Cluster Inventory image: ${{ steps.build-cluster-inventory.outputs.digest }}"
+          echo "Frontend image: ${{ steps.build-frontend.outputs.digest }}"
+
+  package-helm-charts:
+    needs: build-images
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+
+      - name: Configure Helm OCI registry
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ${{ env.HELM_REGISTRY }} \
+            -u ${{ github.actor }} \
+            --password-stdin
+
+      - name: Generate chart version
+        id: chart-version
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          CHART_VERSION="0.1.0-${SHORT_SHA}"
+          echo "version=$CHART_VERSION" >> $GITHUB_OUTPUT
+          echo "short=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Update sreagent chart version
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          sed -i "s/^appVersion:.*/appVersion: \"$SHORT_SHA\"/" helm/sreagent/Chart.yaml
+          sed -i "s/^version:.*/version: \"0.1.0-$SHORT_SHA\"/" helm/sreagent/Chart.yaml
+
+      - name: Update cluster-inventory chart version
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          sed -i "s/^appVersion:.*/appVersion: \"$SHORT_SHA\"/" helm/cluster-inventory/Chart.yaml
+          sed -i "s/^version:.*/version: \"0.1.0-$SHORT_SHA\"/" helm/cluster-inventory/Chart.yaml
+
+      - name: Package sreagent Helm chart
+        run: |
+          helm package helm/sreagent --destination /tmp/charts
+
+      - name: Package cluster-inventory Helm chart
+        run: |
+          helm package helm/cluster-inventory --destination /tmp/charts
+
+      - name: Push sreagent Helm chart to OCI registry
+        run: |
+          helm push /tmp/charts/sreagent-*.tgz oci://${{ env.HELM_REGISTRY }}/${{ env.HELM_CHART_PREFIX }}
+
+      - name: Push cluster-inventory Helm chart to OCI registry
+        run: |
+          helm push /tmp/charts/cluster-inventory-*.tgz oci://${{ env.HELM_REGISTRY }}/${{ env.HELM_CHART_PREFIX }}
+
+      - name: Chart information
+        run: |
+          echo "Helm charts pushed to:"
+          echo "  - oci://${{ env.HELM_REGISTRY }}/${{ env.HELM_CHART_PREFIX }}/sreagent:${{ steps.chart-version.outputs.version }}"
+          echo "  - oci://${{ env.HELM_REGISTRY }}/${{ env.HELM_CHART_PREFIX }}/cluster-inventory:${{ steps.chart-version.outputs.version }}"
