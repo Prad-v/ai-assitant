@@ -220,7 +220,7 @@ test_endpoint "POST" "/tokens" "200" "{\"name\":\"test-token\"}" "$AUTH_HEADER_1
 log_info ""
 log_info "=== Testing Settings Endpoints ==="
 test_endpoint "GET" "/settings/model" "200" "" "$AUTH_HEADER_1" "$AUTH_HEADER_2" "Get model settings"
-test_endpoint "PUT" "/settings/model" "200" "{\"provider\":\"openai\",\"model_name\":\"gpt-4\",\"api_key\":\"sk-proj-\",\"max_tokens\":2000,\"temperature\":0.7}" "$AUTH_HEADER_1" "$AUTH_HEADER_2" "Update model settings"
+test_endpoint "PUT" "/settings/model" "200" "{\"provider\":\"openai\",\"model_name\":\"gpt-4\",\"api_key\":\"sk-test-api-key\",\"max_tokens\":2000,\"temperature\":0.7}" "$AUTH_HEADER_1" "$AUTH_HEADER_2" "Update model settings"
 test_endpoint "POST" "/settings/model/validate" "200" "{\"provider\":\"openai\",\"model_name\":\"gpt-4\",\"api_key\":\"sk-test\"}" "$AUTH_HEADER_1" "$AUTH_HEADER_2" "Validate API key"
 test_endpoint "POST" "/settings/models/list" "200" "{\"provider\":\"openai\",\"api_key\":\"sk-test\"}" "$AUTH_HEADER_1" "$AUTH_HEADER_2" "List available models"
 test_endpoint "POST" "/settings/model/test" "200" "" "$AUTH_HEADER_1" "$AUTH_HEADER_2" "Test saved configuration"
