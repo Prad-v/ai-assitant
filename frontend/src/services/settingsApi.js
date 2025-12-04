@@ -87,7 +87,15 @@ export const getModelSettings = async () => {
  */
 export const updateModelSettings = async (settings) => {
   try {
-    const response = await settingsApiClient.put('/settings/model', settings);
+    // Clean the API key before sending (trim whitespace)
+    const cleanedSettings = {
+      ...settings,
+      api_key: settings.api_key ? settings.api_key.trim() : settings.api_key,
+      provider: settings.provider ? settings.provider.trim() : settings.provider,
+      model_name: settings.model_name ? settings.model_name.trim() : settings.model_name,
+    };
+    
+    const response = await settingsApiClient.put('/settings/model', cleanedSettings);
     return response.data;
   } catch (error) {
     if (error.response) {
@@ -109,19 +117,41 @@ export const updateModelSettings = async (settings) => {
  */
 export const validateApiKey = async (provider, modelName, apiKey) => {
   try {
+    // Clean the API key before sending (trim whitespace)
+    const cleanedApiKey = apiKey ? apiKey.trim() : '';
+    
+    if (!cleanedApiKey) {
+      throw new Error('API key is required');
+    }
+    
     const response = await settingsApiClient.post('/settings/model/validate', {
-      provider,
-      model_name: modelName,
-      api_key: apiKey,
+      provider: provider ? provider.trim() : provider,
+      model_name: modelName ? modelName.trim() : modelName,
+      api_key: cleanedApiKey,
     });
-    return response.data;
+    
+    // Check if response has valid structure
+    if (response.data && typeof response.data === 'object') {
+      return response.data;
+    }
+    
+    // Fallback if response structure is unexpected
+    return { valid: false, message: 'Unexpected response format from server' };
   } catch (error) {
+    // Log error for debugging
+    console.error('API key validation error:', error);
+    
     if (error.response) {
-      throw new Error(error.response.data.detail || 'Failed to validate API key');
+      // Backend returned an error response
+      const errorMessage = error.response.data?.detail || 
+                          error.response.data?.message || 
+                          `Server error: ${error.response.status} ${error.response.statusText}`;
+      throw new Error(errorMessage);
     } else if (error.request) {
       throw new Error('No response from server. Please check if the backend is running.');
     } else {
-      throw new Error(error.message || 'Failed to validate API key');
+      // This is likely a validation error we threw ourselves
+      throw error;
     }
   }
 };
@@ -134,9 +164,12 @@ export const validateApiKey = async (provider, modelName, apiKey) => {
  */
 export const listAvailableModels = async (provider, apiKey) => {
   try {
+    // Clean the API key before sending (trim whitespace)
+    const cleanedApiKey = apiKey ? apiKey.trim() : '';
+    
     const response = await settingsApiClient.post('/settings/models/list', {
-      provider,
-      api_key: apiKey,
+      provider: provider ? provider.trim() : provider,
+      api_key: cleanedApiKey,
     });
     return response.data;
   } catch (error) {

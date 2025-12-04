@@ -229,8 +229,50 @@ async def chat(request: ChatRequest, current_user: dict = Depends(require_auth))
                 logger.error(f"ValueError in agent run: {ve}", exc_info=True)
                 raise
         except Exception as e:
+            error_message = str(e)
             logger.error(f"Unexpected error in agent run: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Agent execution failed: {e}")
+            
+            # Handle OpenAI tool call errors specifically
+            if "tool_calls" in error_message and "tool_call_id" in error_message:
+                logger.warning("Tool call response error detected. This may be due to incomplete tool execution.")
+                logger.warning("Attempting to clear session and retry...")
+                
+                # Try to clear the problematic session state and retry once
+                try:
+                    # Delete and recreate session to clear conversation history
+                    try:
+                        await session_service.delete_session(
+                            app_name=APP_NAME,
+                            user_id=user_id,
+                            session_id=session_id,
+                        )
+                    except:
+                        pass  # Session might not exist
+                    
+                    # Create fresh session
+                    await session_service.create_session(
+                        app_name=APP_NAME,
+                        user_id=user_id,
+                        session_id=session_id,
+                    )
+                    
+                    logger.info("Session cleared, retrying with fresh session...")
+                    events = []
+                    async for event in runner.run_async(
+                        user_id=user_id,
+                        session_id=session_id,
+                        new_message=content,
+                    ):
+                        events.append(event)
+                    logger.info(f"Retry successful, collected {len(events)} events")
+                except Exception as retry_error:
+                    logger.error(f"Retry after session clear failed: {retry_error}", exc_info=True)
+                    raise HTTPException(
+                        status_code=500, 
+                        detail=f"Agent execution failed: {error_message}. Please try again with a new conversation."
+                    )
+            else:
+                raise HTTPException(status_code=500, detail=f"Agent execution failed: {error_message}")
         
         # Collect response from events
         response_text = ""
@@ -673,6 +715,9 @@ class ModelSettingsResponse(BaseModel):
     temperature: Optional[float] = None
     updated_at: Optional[str] = None
     updated_by: Optional[str] = None
+    status: Optional[str] = None  # "provisioned" or "not_provisioned"
+    has_api_key: Optional[bool] = None
+    has_model_config: Optional[bool] = None
 
 
 class ValidateApiKeyRequest(BaseModel):
@@ -717,15 +762,52 @@ async def list_available_models(request: ListModelsRequest, admin: dict = Depend
 async def validate_api_key(request: ValidateApiKeyRequest, admin: dict = Depends(require_admin)):
     """Validate API key without saving (admin-only)."""
     try:
+        # Clean and validate input
+        provider = request.provider.strip().lower() if request.provider else ""
+        model_name = request.model_name.strip() if request.model_name else ""
+        api_key = request.api_key.strip() if request.api_key else ""
+        
+        if not provider:
+            return ValidateApiKeyResponse(
+                valid=False,
+                message="Provider is required"
+            )
+        
+        if not api_key:
+            return ValidateApiKeyResponse(
+                valid=False,
+                message="API key is required"
+            )
+        
+        # Call validation service
         result = SettingsService.validate_api_key(
-            provider=request.provider,
-            model_name=request.model_name,
-            api_key=request.api_key
+            provider=provider,
+            model_name=model_name,
+            api_key=api_key
         )
+        
+        # Ensure result has required fields
+        if not isinstance(result, dict) or "valid" not in result:
+            logger.error(f"Invalid validation result format: {result}")
+            return ValidateApiKeyResponse(
+                valid=False,
+                message="Validation service returned invalid response"
+            )
+        
         return ValidateApiKeyResponse(**result)
+    except ValueError as e:
+        # Handle validation errors
+        logger.error(f"Validation error: {e}")
+        return ValidateApiKeyResponse(
+            valid=False,
+            message=str(e)
+        )
     except Exception as e:
         logger.error(f"Error validating API key: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to validate API key: {str(e)}")
+        return ValidateApiKeyResponse(
+            valid=False,
+            message=f"Failed to validate API key: {str(e)}"
+        )
 
 
 @app.get("/settings/model", response_model=ModelSettingsResponse)
@@ -734,7 +816,14 @@ async def get_model_settings(admin: dict = Depends(require_admin)):
     try:
         settings = SettingsService.get_model_settings()
         if not settings:
-            raise HTTPException(status_code=404, detail="Model settings not configured")
+            # Return default response with not_provisioned status
+            return ModelSettingsResponse(
+                provider="openai",
+                model_name="gpt-4",
+                status="not_provisioned",
+                has_api_key=False,
+                has_model_config=False
+            )
         return ModelSettingsResponse(**settings)
     except HTTPException:
         # Re-raise HTTP exceptions (like 404) as-is

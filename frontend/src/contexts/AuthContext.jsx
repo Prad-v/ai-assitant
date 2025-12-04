@@ -19,6 +19,8 @@ export const AuthProvider = ({ children }) => {
 
   // Load user from localStorage on mount
   useEffect(() => {
+    let mounted = true;
+    
     const initAuth = async () => {
       try {
         const storedUser = localStorage.getItem('user');
@@ -35,27 +37,42 @@ export const AuthProvider = ({ children }) => {
           // Verify token is still valid by getting current user
           try {
             const currentUser = await getCurrentUser();
-            setUser(currentUser);
-            localStorage.setItem('user', JSON.stringify(currentUser));
+            if (mounted) {
+              setUser(currentUser);
+              localStorage.setItem('user', JSON.stringify(currentUser));
+            }
           } catch (error) {
             // Token invalid, clear auth
-            clearAuth();
+            if (mounted) {
+              clearAuth();
+            }
           }
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
-        clearAuth();
+        if (mounted) {
+          clearAuth();
+        }
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
     
     initAuth();
     
-    // Set up token refresh interval (refresh 1 minute before expiration)
+    return () => {
+      mounted = false;
+    };
+  }, []); // Empty dependency array - only run on mount
+  
+  // Set up token refresh interval (separate effect, doesn't depend on user)
+  useEffect(() => {
     const refreshInterval = setInterval(async () => {
       const refreshTokenValue = localStorage.getItem('refreshToken');
-      if (refreshTokenValue && user) {
+      const currentUser = user; // Get current user value
+      if (refreshTokenValue && currentUser) {
         try {
           await refreshTokenApi();
           const newToken = localStorage.getItem('accessToken');
@@ -68,7 +85,7 @@ export const AuthProvider = ({ children }) => {
     }, 14 * 60 * 1000); // Refresh every 14 minutes (access token expires in 15 minutes)
     
     return () => clearInterval(refreshInterval);
-  }, [user]);
+  }, [user]); // This can depend on user since it's just for the refresh interval
 
   const clearAuth = () => {
     setUser(null);

@@ -103,6 +103,26 @@ const Chat = () => {
   const clustersArray = Array.isArray(clusters) ? clusters : [];
   const selectedCluster = clustersArray.find(c => c && c.id === selectedClusterId) || null;
 
+  const handleExportConversation = () => {
+    if (messages.length === 0) return;
+    
+    const conversationText = messages.map((msg, idx) => {
+      const role = msg.role === 'user' ? 'You' : 'SRE Agent';
+      const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
+      return `${role} (${time}):\n${msg.content}\n\n`;
+    }).join('---\n\n');
+    
+    const blob = new Blob([conversationText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sre-agent-conversation-${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="chat-container">
       {clustersArray.length > 0 && (
@@ -125,6 +145,18 @@ const Chat = () => {
             <span className={`cluster-status-badge status-${selectedCluster.status || 'unknown'}`}>
               {selectedCluster.status || 'unknown'}
             </span>
+          )}
+          {messages.length > 0 && (
+            <button
+              className="export-conversation-button"
+              onClick={handleExportConversation}
+              title="Export conversation"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z" fill="currentColor"/>
+              </svg>
+              Export
+            </button>
           )}
         </div>
       )}

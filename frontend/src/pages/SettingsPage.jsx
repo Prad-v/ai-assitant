@@ -24,6 +24,7 @@ function SettingsPage() {
   const [validationResult, setValidationResult] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
   const [apiKeyValidated, setApiKeyValidated] = useState(false);
+  const [provisionedStatus, setProvisionedStatus] = useState(null);
 
   const [formData, setFormData] = useState({
     provider: 'openai',
@@ -53,8 +54,11 @@ function SettingsPage() {
         max_tokens: settings.max_tokens?.toString() || '',
         temperature: settings.temperature?.toString() || '',
       });
+      // Set provisioned status
+      setProvisionedStatus(settings.status || 'not_provisioned');
     } catch (err) {
       setError(err.message || 'Failed to load settings');
+      setProvisionedStatus('not_provisioned');
     } finally {
       setLoading(false);
     }
@@ -250,6 +254,7 @@ function SettingsPage() {
 
       await updateModelSettings(settings);
       setSuccess('Settings saved successfully!');
+      setProvisionedStatus('provisioned');
 
       // Reload agent with new settings
       try {
@@ -303,6 +308,20 @@ function SettingsPage() {
               <p className="settings-description">
                 Configure the LLM model and API key for the SRE Agent. Changes will be applied immediately.
               </p>
+
+              {provisionedStatus === 'provisioned' && (
+                <div className="alert alert-success" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>✓</span>
+                  <span><strong>Status: Provisioned</strong> - API key and model configuration are saved and ready to use.</span>
+                </div>
+              )}
+
+              {provisionedStatus === 'not_provisioned' && (
+                <div className="alert alert-warning" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>⚠</span>
+                  <span><strong>Status: Not Provisioned</strong> - Please configure API key and model settings.</span>
+                </div>
+              )}
 
               {error && (
                 <div className="alert alert-error">

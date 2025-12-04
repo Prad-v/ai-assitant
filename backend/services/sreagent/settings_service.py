@@ -69,6 +69,25 @@ class SettingsService:
                 if not settings:
                     return None
                 
+                # Check if API key exists and is not empty
+                has_api_key = False
+                try:
+                    api_key = SettingsService.decrypt_api_key(settings.api_key)
+                    has_api_key = bool(api_key and api_key.strip())
+                except Exception:
+                    has_api_key = False
+                
+                # Check if model config is complete
+                has_model_config = bool(
+                    settings.model_provider and 
+                    settings.model_provider.strip() and
+                    settings.model_name and 
+                    settings.model_name.strip()
+                )
+                
+                # Status is "provisioned" if both API key and model config exist
+                status = "provisioned" if (has_api_key and has_model_config) else "not_provisioned"
+                
                 return {
                     "provider": settings.model_provider,
                     "model_name": settings.model_name,
@@ -76,6 +95,9 @@ class SettingsService:
                     "temperature": settings.temperature,
                     "updated_at": settings.updated_at.isoformat() if settings.updated_at else None,
                     "updated_by": settings.updated_by,
+                    "status": status,
+                    "has_api_key": has_api_key,
+                    "has_model_config": has_model_config,
                 }
             finally:
                 db.close()
@@ -107,6 +129,36 @@ class SettingsService:
             raise
     
     @staticmethod
+    def _clean_api_key(api_key: str) -> str:
+        """
+        Clean API key by removing whitespace and hidden characters.
+        
+        Args:
+            api_key: Raw API key string
+            
+        Returns:
+            Cleaned API key
+        """
+        if not api_key:
+            return ""
+        
+        # Remove all types of whitespace (including non-breaking spaces, zero-width spaces, etc.)
+        import re
+        # First, remove leading/trailing whitespace
+        cleaned = api_key.strip()
+        # Remove any zero-width characters
+        cleaned = re.sub(r'[\u200b-\u200d\ufeff]', '', cleaned)
+        # Remove any non-breaking spaces and other unusual spaces
+        cleaned = cleaned.replace('\u00a0', ' ').replace('\u2000', ' ').replace('\u2001', ' ')
+        cleaned = cleaned.replace('\u2002', ' ').replace('\u2003', ' ').replace('\u2004', ' ')
+        cleaned = cleaned.replace('\u2005', ' ').replace('\u2006', ' ').replace('\u2007', ' ')
+        cleaned = cleaned.replace('\u2008', ' ').replace('\u2009', ' ').replace('\u200a', ' ')
+        # Final strip
+        cleaned = cleaned.strip()
+        
+        return cleaned
+    
+    @staticmethod
     def validate_api_key(provider: str, model_name: str, api_key: str) -> Dict[str, Any]:
         """
         Validate API key by making a test call to the model API.
@@ -123,18 +175,34 @@ class SettingsService:
                 "message": "Provider is required"
             }
         
-        if not api_key or not api_key.strip():
+        if not api_key:
             return {
                 "valid": False,
                 "message": "API key is required"
             }
         
-        api_key = api_key.strip()
+        # Clean the API key to remove any hidden characters or extra whitespace
+        api_key = SettingsService._clean_api_key(api_key)
+        
+        if not api_key:
+            return {
+                "valid": False,
+                "message": "API key is required (key appears to be empty after cleaning)"
+            }
+        
+        # Log first few and last few characters for debugging (without exposing full key)
+        key_preview = f"{api_key[:7]}...{api_key[-4:]}" if len(api_key) > 11 else "***"
+        logger.info(f"Validating API key for provider '{provider}': {key_preview} (length: {len(api_key)})")
         
         try:
             import httpx
             
             if provider == "openai":
+                # Validate OpenAI API key format first
+                if not api_key.startswith(("sk-", "sk-proj-")):
+                    logger.warning(f"OpenAI API key format may be invalid (doesn't start with 'sk-' or 'sk-proj-'): {key_preview}")
+                    # Continue anyway, as format might have changed
+                
                 # Validate OpenAI API key by calling the models endpoint
                 headers = {"Authorization": f"Bearer {api_key}"}
                 try:
@@ -142,23 +210,48 @@ class SettingsService:
                     response.raise_for_status()
                     
                     # If we get here, the API key is valid
+                    logger.info(f"OpenAI API key validation successful for {key_preview}")
                     return {
                         "valid": True,
                         "message": "API key validation successful"
                     }
                 except httpx.HTTPStatusError as e:
                     error_msg = f"OpenAI API returned {e.response.status_code}"
+                    error_detail = None
                     try:
                         error_data = e.response.json()
                         if "error" in error_data:
-                            error_msg = error_data["error"].get("message", error_msg)
+                            error_detail = error_data["error"].get("message", "")
+                            error_msg = error_detail
+                            # Log the full error for debugging
+                            logger.error(f"OpenAI API key validation failed: Status {e.response.status_code}, Error: {error_detail}")
                     except:
-                        error_msg = f"{error_msg}: {e.response.text[:200]}"
-                    logger.error(f"OpenAI API key validation failed: {error_msg}")
-                    return {
-                        "valid": False,
-                        "message": f"API key validation failed: {error_msg}"
-                    }
+                        error_text = e.response.text[:200] if e.response.text else ""
+                        error_msg = f"{error_msg}: {error_text}"
+                        logger.error(f"OpenAI API key validation failed: {error_msg}")
+                    
+                    # Provide more helpful error messages
+                    if e.response.status_code == 401:
+                        if error_detail and "incorrect" in error_detail.lower():
+                            return {
+                                "valid": False,
+                                "message": f"Invalid API key. Please verify your API key is correct and has not been revoked. You can find your API key at https://platform.openai.com/account/api-keys."
+                            }
+                        else:
+                            return {
+                                "valid": False,
+                                "message": f"Authentication failed. Please check your API key. Status: {e.response.status_code}"
+                            }
+                    elif e.response.status_code == 429:
+                        return {
+                            "valid": False,
+                            "message": "Rate limit exceeded. Please try again later."
+                        }
+                    else:
+                        return {
+                            "valid": False,
+                            "message": f"API key validation failed: {error_msg}"
+                        }
                 except httpx.RequestError as e:
                     logger.error(f"OpenAI API request error: {e}")
                     return {
@@ -288,18 +381,28 @@ class SettingsService:
                     "message": "Provider is required"
                 }
             
-            if not api_key or not api_key.strip():
+            if not api_key:
                 return {
                     "success": False,
                     "models": [],
                     "message": "API key is required"
                 }
             
+            # Clean the API key to remove any hidden characters or extra whitespace
+            api_key = SettingsService._clean_api_key(api_key)
+            
+            if not api_key:
+                return {
+                    "success": False,
+                    "models": [],
+                    "message": "API key is required (key appears to be empty after cleaning)"
+                }
+            
             models = []
             
             if provider == "openai":
                 # Use OpenAI API to list models
-                headers = {"Authorization": f"Bearer {api_key.strip()}"}
+                headers = {"Authorization": f"Bearer {api_key}"}
                 try:
                     response = httpx.get("https://api.openai.com/v1/models", headers=headers, timeout=10.0)
                     response.raise_for_status()  # Raise exception for non-200 status codes
@@ -353,7 +456,7 @@ class SettingsService:
                 # Try to validate the key by making a simple request
                 try:
                     import google.generativeai as genai
-                    genai.configure(api_key=api_key.strip())
+                    genai.configure(api_key=api_key)
                     # List models to validate key (this will fail if key is invalid)
                     list(genai.list_models())
                 except ImportError:
@@ -379,13 +482,13 @@ class SettingsService:
                     "claude-3-5-haiku-20241022",
                 ]
                 # Validate key by checking if it's properly formatted
-                api_key_clean = api_key.strip()
-                if not api_key_clean.startswith("sk-ant-"):
+                if not api_key.startswith("sk-ant-"):
                     return {
                         "success": False,
                         "models": [],
                         "message": "Invalid Anthropic API key format (must start with 'sk-ant-')"
                     }
+                # Key format is valid, return models
             
             else:
                 return {
@@ -496,8 +599,11 @@ class SettingsService:
         try:
             db = get_db_session()
             try:
+                # Clean the API key before encrypting
+                cleaned_api_key = SettingsService._clean_api_key(api_key) if api_key else ""
+                
                 # Encrypt API key
-                encrypted_key = SettingsService.encrypt_api_key(api_key)
+                encrypted_key = SettingsService.encrypt_api_key(cleaned_api_key)
                 
                 # Get or create settings
                 settings = db.query(ModelSettings).filter(ModelSettings.id == 1).first()
