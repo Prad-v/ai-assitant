@@ -785,6 +785,17 @@ async def update_model_settings(request: ModelSettingsRequest, admin: dict = Dep
         raise HTTPException(status_code=500, detail=f"Failed to update model settings: {str(e)}")
 
 
+@app.post("/settings/model/test", response_model=ValidateApiKeyResponse)
+async def test_saved_model_config(admin: dict = Depends(require_admin)):
+    """Test saved model configuration using stored API key (admin-only)."""
+    try:
+        result = SettingsService.test_saved_configuration()
+        return ValidateApiKeyResponse(**result)
+    except Exception as e:
+        logger.error(f"Error testing saved model configuration: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to test saved configuration: {str(e)}")
+
+
 @app.post("/settings/model/reload")
 async def reload_agent(admin: dict = Depends(require_admin)):
     """Reload agent with new settings (admin-only)."""

@@ -151,6 +151,25 @@ export const listAvailableModels = async (provider, apiKey) => {
 };
 
 /**
+ * Test saved model configuration using stored API key
+ * @returns {Promise<{valid: boolean, message: string}>}
+ */
+export const testSavedConfiguration = async () => {
+  try {
+    const response = await settingsApiClient.post('/settings/model/test');
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      throw new Error(error.response.data.detail || 'Failed to test saved configuration');
+    } else if (error.request) {
+      throw new Error('No response from server. Please check if the backend is running.');
+    } else {
+      throw new Error(error.message || 'Failed to test saved configuration');
+    }
+  }
+};
+
+/**
  * Reload agent with new settings
  * @returns {Promise<Object>}
  */

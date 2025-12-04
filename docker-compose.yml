@@ -53,8 +53,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      kubernetes-mcp-server:
-        condition: service_started
+      # kubernetes-mcp-server:
+      #   condition: service_started
     networks:
       - sreagent-network
     restart: unless-stopped
@@ -74,19 +74,19 @@ services:
       - sreagent-network
     restart: unless-stopped
 
-  kubernetes-mcp-server:
-    image: quay.io/kubernetes-mcp-server/kubernetes-mcp-server:latest
-    container_name: kubernetes-mcp-server
-    ports:
-      - "8080:8080"
-    environment:
-      - KUBECONFIG=/root/.kube/config
-    volumes:
-      # Mount kubeconfig for local testing
-      - ${HOME}/.kube/config:/root/.kube/config:ro
-    networks:
-      - sreagent-network
-    restart: unless-stopped
+  # kubernetes-mcp-server:
+  #   image: quay.io/kubernetes-mcp-server/kubernetes-mcp-server:latest
+  #   container_name: kubernetes-mcp-server
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     - KUBECONFIG=/root/.kube/config
+  #   volumes:
+  #     # Mount kubeconfig for local testing
+  #     - ${HOME}/.kube/config:/root/.kube/config:ro
+  #   networks:
+  #     - sreagent-network
+  #   restart: unless-stopped
 
 volumes:
   mysql-data:

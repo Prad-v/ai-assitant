@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { getModelSettings, updateModelSettings, validateApiKey, listAvailableModels, reloadAgent } from '../services/settingsApi';
+import { getModelSettings, updateModelSettings, validateApiKey, listAvailableModels, reloadAgent, testSavedConfiguration } from '../services/settingsApi';
 import UserManagementPage from './UserManagementPage';
 import TokenManagementPage from './TokenManagementPage';
 import '../styles/SettingsPage.css';
@@ -169,27 +169,37 @@ function SettingsPage() {
       return;
     }
 
-    if (!formData.api_key.trim()) {
-      setError('Please enter and validate an API key');
-      return;
-    }
-
     try {
       setTesting(true);
       setError(null);
       setSuccess(null);
       
-      // Test by validating the API key with the selected model
-      const result = await validateApiKey(
-        formData.provider,
-        formData.model_name,
-        formData.api_key
-      );
+      let result;
       
-      if (result.valid) {
-        setSuccess(`Model test successful! ${formData.provider}/${formData.model_name} is ready to use.`);
+      // If API key is provided, test with that key
+      // Otherwise, test with saved configuration
+      if (formData.api_key.trim()) {
+        // Test with new API key
+        result = await validateApiKey(
+          formData.provider,
+          formData.model_name,
+          formData.api_key
+        );
+        
+        if (result.valid) {
+          setSuccess(`Model test successful! ${formData.provider}/${formData.model_name} is ready to use.`);
+        } else {
+          setError(`Model test failed: ${result.message}`);
+        }
       } else {
-        setError(`Model test failed: ${result.message}`);
+        // Test with saved configuration
+        result = await testSavedConfiguration();
+        
+        if (result.valid) {
+          setSuccess(result.message || 'Saved configuration test successful!');
+        } else {
+          setError(result.message || 'Failed to test saved configuration. Please enter and validate a new API key.');
+        }
       }
     } catch (err) {
       setError(err.message || 'Failed to test model');
@@ -357,7 +367,7 @@ function SettingsPage() {
                       </button>
                     </div>
                     <small className="form-hint">
-                      API key will be encrypted before storage
+                      API key will be encrypted before storage. Leave empty to test with saved configuration.
                     </small>
                   </div>
 
@@ -450,10 +460,11 @@ function SettingsPage() {
                     <button
                       type="button"
                       onClick={handleTest}
-                      disabled={testing || !apiKeyValidated || !formData.model_name.trim() || saving}
+                      disabled={testing || !formData.model_name.trim() || saving}
                       className="btn-secondary"
+                      title={formData.api_key.trim() ? "Test with entered API key" : "Test with saved configuration"}
                     >
-                      {testing ? 'Testing...' : 'Test Model'}
+                      {testing ? 'Testing...' : formData.api_key.trim() ? 'Test Model (New Key)' : 'Test Model (Saved Config)'}
                     </button>
                     <button
                       type="button"

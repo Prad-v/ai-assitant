@@ -80,6 +80,82 @@ test: venv
 		echo "No tests directory found"; \
 	fi
 
+# Test API endpoints through nginx proxy
+test-api-nginx:
+	@echo "Testing API endpoints through nginx proxy..."
+	@echo "FRONTEND_URL: $${FRONTEND_URL:-http://localhost:3000}"
+	@echo ""
+	@if [ -z "$$FRONTEND_URL" ]; then \
+		echo "Note: Set FRONTEND_URL environment variable if frontend is not on localhost:3000"; \
+		echo "Example: FRONTEND_URL=http://localhost:3000 make test-api-nginx"; \
+		echo ""; \
+	fi
+	@bash tests/test_api_nginx.sh
+
+# Test API endpoints in Kubernetes cluster
+test-api-k8s:
+	@echo "Testing API endpoints in Kubernetes cluster..."
+	@echo "Setting up port-forward..."
+	@TEST_PORT=$$(($$RANDOM % 1000 + 3000)); \
+	echo "Setting up port-forward on port $$TEST_PORT..."; \
+	kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME)-frontend $$TEST_PORT:3000 > /tmp/k8s-port-forward.log 2>&1 & \
+	PORT_FORWARD_PID=$$!; \
+	echo "Waiting for port-forward to be ready..."; \
+	for i in 1 2 3 4 5; do \
+		sleep 2; \
+		if curl -s -f http://localhost:$$TEST_PORT/api/health > /dev/null 2>&1; then \
+			echo "Port-forward ready!"; \
+			break; \
+		fi; \
+		echo "Attempt $$i/5: Port-forward not ready yet..."; \
+	done; \
+	echo "Running API tests on port $$TEST_PORT..."; \
+	FRONTEND_URL=http://localhost:$$TEST_PORT bash tests/test_api_nginx.sh; \
+	TEST_EXIT=$$?; \
+	kill $$PORT_FORWARD_PID 2>/dev/null || true; \
+	pkill -f "port-forward.*$$TEST_PORT" 2>/dev/null || true; \
+	exit $$TEST_EXIT
+
+# Test UI endpoints
+test-ui:
+	@echo "Testing UI endpoints..."
+	@echo "FRONTEND_URL: $${FRONTEND_URL:-http://localhost:3000}"
+	@echo ""
+	@if [ -z "$$FRONTEND_URL" ]; then \
+		echo "Note: Set FRONTEND_URL environment variable if frontend is not on localhost:3000"; \
+		echo "Example: FRONTEND_URL=http://localhost:3000 make test-ui"; \
+		echo ""; \
+	fi
+	@bash tests/test_ui.sh
+
+# Test UI in Kubernetes cluster
+test-ui-k8s:
+	@echo "Testing UI in Kubernetes cluster..."
+	@echo "Setting up port-forward..."
+	@TEST_PORT=$$(($$RANDOM % 1000 + 3000)); \
+	echo "Setting up port-forward on port $$TEST_PORT..."; \
+	kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME)-frontend $$TEST_PORT:3000 > /tmp/k8s-ui-port-forward.log 2>&1 & \
+	PORT_FORWARD_PID=$$!; \
+	echo "Waiting for port-forward to be ready..."; \
+	for i in 1 2 3 4 5; do \
+		sleep 2; \
+		if curl -s -f http://localhost:$$TEST_PORT/ > /dev/null 2>&1; then \
+			echo "Port-forward ready!"; \
+			break; \
+		fi; \
+		echo "Attempt $$i/5: Port-forward not ready yet..."; \
+	done; \
+	echo "Running UI tests on port $$TEST_PORT..."; \
+	FRONTEND_URL=http://localhost:$$TEST_PORT bash tests/test_ui.sh; \
+	TEST_EXIT=$$?; \
+	kill $$PORT_FORWARD_PID 2>/dev/null || true; \
+	pkill -f "port-forward.*$$TEST_PORT" 2>/dev/null || true; \
+	exit $$TEST_EXIT
+
+# Run all tests (API + UI)
+test-all-k8s: test-api-k8s test-ui-k8s
+	@echo "All tests completed!"
+
 # Build Docker image
 docker-build:
 	@echo "Building Docker image: $(FULL_IMAGE)"
@@ -217,7 +293,12 @@ help:
 	@echo "  make venv          - Create Python virtual environment"
 	@echo "  make install       - Create venv and install dependencies"
 	@echo "  make install-dev   - Install in development mode"
-	@echo "  make test          - Run tests"
+	@echo "  make test          - Run Python tests"
+	@echo "  make test-api-nginx - Test API endpoints through nginx (requires FRONTEND_URL)"
+	@echo "  make test-api-k8s  - Test API endpoints in Kubernetes cluster"
+	@echo "  make test-ui       - Test UI endpoints (requires FRONTEND_URL)"
+	@echo "  make test-ui-k8s   - Test UI endpoints in Kubernetes cluster"
+	@echo "  make test-all-k8s  - Run all tests (API + UI) in Kubernetes cluster"
 	@echo "  make clean         - Remove virtual environment"
 	@echo ""
 	@echo "Docker:"
