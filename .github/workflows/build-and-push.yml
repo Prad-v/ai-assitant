@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/kekaflow-api
+  IMAGE_NAME: ${{ github.repository_owner }}/ai-assistant
 
 jobs:
   build-and-push:
