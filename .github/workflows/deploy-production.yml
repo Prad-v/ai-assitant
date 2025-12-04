@@ -1,0 +1,252 @@
+name: Deploy to Production (OCI Kubernetes)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (commit SHA, version, or latest). Default: latest (last built image)'
+        required: false
+        default: 'latest'
+        type: string
+      environment:
+        description: 'Environment to deploy to'
+        required: false
+        default: 'prod'
+        type: choice
+        options:
+          - prod
+          - staging
+      namespace:
+        description: 'Kubernetes namespace'
+        required: false
+        default: 'sreagent'
+        type: string
+      release_name:
+        description: 'Helm release name'
+        required: false
+        default: 'sreagent'
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/kekaflow
+  HELM_REGISTRY: ghcr.io
+  HELM_CHART_PREFIX: ${{ github.repository_owner }}/kekaflow-charts
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: oci-k8s  # Use the environment where secrets are configured
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Kubernetes
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+
+      - name: Install OCI CLI
+        run: |
+          bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" --accept-all-defaults
+          echo "$HOME/bin" >> $GITHUB_PATH
+          oci --version
+
+      - name: Configure OCI CLI
+        env:
+          OCI_CLI_USER: ${{ secrets.OCI_USER_OCID }}
+          OCI_CLI_TENANCY: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_CLI_REGION: ${{ secrets.OCI_REGION }}
+        run: |
+          mkdir -p ~/.oci
+          echo "$OCI_CLI_KEY_CONTENT" | base64 -d > ~/.oci/api_key.pem
+          chmod 600 ~/.oci/api_key.pem
+          oci setup config-file --file ~/.oci/config --overwrite <<EOF
+          [DEFAULT]
+          user=$OCI_CLI_USER
+          tenancy=$OCI_CLI_TENANCY
+          fingerprint=$OCI_CLI_FINGERPRINT
+          key_file=~/.oci/api_key.pem
+          region=$OCI_CLI_REGION
+          EOF
+
+      - name: Generate kubeconfig
+        env:
+          OCI_CLUSTER_ID: ${{ secrets.OCI_CLUSTER_ID }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+        run: |
+          mkdir -p $HOME/.kube
+          oci ce cluster create-kubeconfig \
+            --cluster-id $OCI_CLUSTER_ID \
+            --file $HOME/.kube/config \
+            --region $OCI_REGION \
+            --token-version 2.0.0 \
+            --kubeconfig-token-provider oci
+          chmod 600 $HOME/.kube/config
+          
+          # Verify connection
+          kubectl cluster-info
+
+      - name: Configure Helm OCI registry
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ${{ env.HELM_REGISTRY }} \
+            -u ${{ github.actor }} \
+            --password-stdin
+
+      - name: Copy imagePullSecret from console namespace
+        env:
+          TARGET_NAMESPACE: ${{ inputs.namespace || 'sreagent' }}
+        run: |
+          echo "Copying ghcr-secret from console namespace to ${TARGET_NAMESPACE} namespace..."
+          
+          # Check if secret exists in console namespace
+          if kubectl get secret ghcr-secret -n console >/dev/null 2>&1; then
+            echo "Secret found in console namespace, copying to ${TARGET_NAMESPACE}..."
+            # Export secret from console namespace and apply to target namespace
+            kubectl get secret ghcr-secret -n console -o yaml | \
+              sed "s/namespace: console/namespace: ${TARGET_NAMESPACE}/" | \
+              sed "/resourceVersion:/d" | \
+              sed "/uid:/d" | \
+              sed "/creationTimestamp:/d" | \
+              kubectl apply -f -
+            
+            echo "Secret copied successfully"
+          else
+            echo "Warning: ghcr-secret not found in console namespace"
+            echo "Creating ghcr-secret in ${TARGET_NAMESPACE} namespace..."
+            kubectl create secret docker-registry ghcr-secret \
+              --docker-server=${{ env.REGISTRY }} \
+              --docker-username=${{ github.actor }} \
+              --docker-password=${{ secrets.GITHUB_TOKEN }} \
+              --namespace=${TARGET_NAMESPACE} \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
+          
+          # Verify secret exists in target namespace
+          kubectl get secret ghcr-secret -n ${TARGET_NAMESPACE}
+
+      - name: Deploy cluster-inventory
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+          NAMESPACE: ${{ inputs.namespace || 'sreagent' }}
+        run: |
+          echo "Deploying cluster-inventory with:"
+          echo "  Image Tag: ${IMAGE_TAG}"
+          echo "  Namespace: ${NAMESPACE}"
+          
+          helm upgrade --install cluster-inventory \
+            oci://${{ env.HELM_REGISTRY }}/${{ env.HELM_CHART_PREFIX }}/cluster-inventory \
+            --version 0.1.0-${IMAGE_TAG} \
+            --namespace ${NAMESPACE} \
+            --create-namespace \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/cluster-inventory \
+            --set image.tag=${IMAGE_TAG} \
+            --set image.pullPolicy=Always \
+            --set imagePullSecrets[0].name=ghcr-secret \
+            --wait \
+            --timeout 10m
+
+      - name: Deploy sreagent
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+          ENVIRONMENT: ${{ inputs.environment || 'prod' }}
+          NAMESPACE: ${{ inputs.namespace || 'sreagent' }}
+          RELEASE_NAME: ${{ inputs.release_name || 'sreagent' }}
+        run: |
+          VALUES_FILE="helm/sreagent/values-${ENVIRONMENT}.yaml"
+          
+          # Check if values file exists, otherwise use default
+          if [ ! -f "$VALUES_FILE" ]; then
+            VALUES_FILE="helm/sreagent/values.yaml"
+          fi
+          
+          echo "Deploying with:"
+          echo "  Image Tag: ${IMAGE_TAG}"
+          echo "  Environment: ${ENVIRONMENT}"
+          echo "  Namespace: ${NAMESPACE}"
+          echo "  Release Name: ${RELEASE_NAME}"
+          
+          helm upgrade --install ${RELEASE_NAME} \
+            oci://${{ env.HELM_REGISTRY }}/${{ env.HELM_CHART_PREFIX }}/sreagent \
+            --version 0.1.0-${IMAGE_TAG} \
+            --namespace ${NAMESPACE} \
+            --create-namespace \
+            --values $VALUES_FILE \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/sreagent \
+            --set image.tag=${IMAGE_TAG} \
+            --set image.pullPolicy=Always \
+            --set imagePullSecrets[0].name=ghcr-secret \
+            --set frontend.image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/sreagent-frontend \
+            --set frontend.image.tag=${IMAGE_TAG} \
+            --set frontend.image.pullPolicy=Always \
+            --set clusterInventory.serviceUrl=http://cluster-inventory:8001 \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployments
+        env:
+          NAMESPACE: ${{ inputs.namespace || 'sreagent' }}
+          RELEASE_NAME: ${{ inputs.release_name || 'sreagent' }}
+        run: |
+          echo "Verifying cluster-inventory deployment..."
+          kubectl rollout status deployment/cluster-inventory \
+            --namespace ${NAMESPACE} \
+            --timeout 5m || true
+          
+          echo "Verifying sreagent deployment..."
+          kubectl rollout status deployment/${RELEASE_NAME} \
+            --namespace ${NAMESPACE} \
+            --timeout 5m
+          
+          echo "Verifying frontend deployment..."
+          kubectl rollout status deployment/${RELEASE_NAME}-frontend \
+            --namespace ${NAMESPACE} \
+            --timeout 5m || true
+
+      - name: Deployment summary
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+          ENVIRONMENT: ${{ inputs.environment || 'prod' }}
+          NAMESPACE: ${{ inputs.namespace || 'sreagent' }}
+          RELEASE_NAME: ${{ inputs.release_name || 'sreagent' }}
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${ENVIRONMENT}" >> $GITHUB_STEP_SUMMARY
+          echo "**Namespace:** ${NAMESPACE}" >> $GITHUB_STEP_SUMMARY
+          echo "**Release Name:** ${RELEASE_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag:** ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed Images:" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/sreagent:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/cluster-inventory:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/sreagent-frontend:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image Pull Secret:" >> $GITHUB_STEP_SUMMARY
+          echo "- Name: ghcr-secret" >> $GITHUB_STEP_SUMMARY
+          echo "- Namespace: ${NAMESPACE}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Helm Charts:" >> $GITHUB_STEP_SUMMARY
+          echo "- oci://${{ env.HELM_REGISTRY }}/${{ env.HELM_CHART_PREFIX }}/sreagent:0.1.0-${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- oci://${{ env.HELM_REGISTRY }}/${{ env.HELM_CHART_PREFIX }}/cluster-inventory:0.1.0-${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Get deployment status
+        env:
+          NAMESPACE: ${{ inputs.namespace || 'sreagent' }}
+        run: |
+          echo "### Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n ${NAMESPACE} >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
