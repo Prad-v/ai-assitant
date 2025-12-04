@@ -28,15 +28,19 @@ app:
   temperature: 0.3
 
 model:
-  openai:
-    secretName: "openai-api-key"
-    secretKey: "api-key"
-    apiKey: "sk-dummy-key-replace-with-real-key"
-  
-  gemini:
-    secretName: "gemini-api-key"
-    secretKey: "api-key"
-    apiKey: "dummy-gemini-key-replace-with-real-key"
+  secretName: "model-api-key"
+  secretKey: "api-key"
+  apiKey: "dummy-api-key-replace-with-real-key"
+
+frontend:
+  enabled: true
+  ingress:
+    enabled: true
+    hosts:
+      - host: sreagent-ui-dev.local
+        paths:
+          - path: /
+            pathType: Prefix
 
 kubernetes-mcp-server:
   enabled: true

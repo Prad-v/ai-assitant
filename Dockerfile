@@ -55,8 +55,9 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/ || exit 1
 
-# Run ADK web interface
-# ADK web expects agents in <agents_dir>/backend/agent.py with root_agent
+# Run FastAPI server (for React UI integration)
+# The FastAPI server provides /chat and /health endpoints for the React frontend
+# ADK web interface is available at /dev-ui/ if needed
 WORKDIR /app
-CMD ["adk", "web", ".", "--port", "8000", "--host", "0.0.0.0"]
+CMD ["python", "-m", "uvicorn", "backend.services.sreagent.server:app", "--host", "0.0.0.0", "--port", "8000"]
 

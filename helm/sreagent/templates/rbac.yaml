@@ -8,7 +8,11 @@ metadata:
 rules:
   # Allow reading pods, services, deployments, etc. for troubleshooting
   - apiGroups: [""]
-    resources: ["pods", "services", "endpoints", "configmaps", "secrets", "events", "namespaces"]
+    resources: ["pods", "services", "endpoints", "configmaps", "secrets", "events"]
+    verbs: ["get", "list", "watch"]
+  # Allow reading namespaces (for connection testing and cluster discovery)
+  - apiGroups: [""]
+    resources: ["namespaces"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
@@ -16,6 +20,15 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log", "pods/exec"]
     verbs: ["get", "list"]
+  # Cluster inventory management permissions
+  # Allow creating/updating/deleting Secrets for cluster kubeconfigs
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Allow managing ConfigMap for cluster metadata
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

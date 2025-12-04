@@ -6,10 +6,10 @@ metadata:
     {{- include "sreagent.labels" . | nindent 4 }}
 data:
   APP_NAME: {{ .Values.app.name | quote }}
-  GEMINI_MODEL: {{ .Values.app.geminiModel | quote }}
   HOST: {{ .Values.app.host | quote }}
   PORT: {{ .Values.app.port | quote }}
   MCP_SERVER_HOST: {{ .Values.mcp.serverHost | quote }}
   MCP_SERVER_PORT: {{ .Values.mcp.serverPort | quote }}
   MCP_TRANSPORT: {{ .Values.mcp.transport | quote }}
+  # Model configuration is now stored in MySQL database and managed via Settings page
 

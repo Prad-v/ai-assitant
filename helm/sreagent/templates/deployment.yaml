@@ -37,50 +37,51 @@ spec:
             - name: http
               containerPort: {{ .Values.app.port }}
               protocol: TCP
+          envFrom:
+            # Load all configuration from ConfigMap
+            - configMapRef:
+                name: {{ include "sreagent.fullname" . }}-config
           env:
-            - name: APP_NAME
-              value: {{ .Values.app.name | quote }}
-            - name: MODEL_PROVIDER
-              value: {{ .Values.app.modelProvider | quote }}
-            {{- if .Values.app.modelName }}
-            - name: MODEL_NAME
-              value: {{ .Values.app.modelName | quote }}
+            - name: CLUSTER_INVENTORY_SERVICE_URL
+              value: {{ .Values.clusterInventory.serviceUrl | quote }}
+            # Database configuration
+            {{- if .Values.mysql.enabled }}
+            - name: DATABASE_URL
+              value: {{ include "mysql.connectionString" . | quote }}
             {{- end }}
-            - name: HOST
-              value: {{ .Values.app.host | quote }}
-            - name: PORT
-              value: {{ .Values.app.port | quote }}
-            - name: MCP_SERVER_HOST
-              value: {{ .Values.mcp.serverHost | quote }}
-            - name: MCP_SERVER_PORT
-              value: {{ .Values.mcp.serverPort | quote }}
-            - name: MCP_TRANSPORT
-              value: {{ .Values.mcp.transport | quote }}
-            {{- if .Values.app.maxTokens }}
-            - name: MAX_TOKENS
-              value: {{ .Values.app.maxTokens | quote }}
-            {{- end }}
-            {{- if .Values.app.temperature }}
-            - name: TEMPERATURE
-              value: {{ .Values.app.temperature | quote }}
-            {{- end }}
-            {{- if eq .Values.app.modelProvider "openai" }}
-            - name: OPENAI_API_KEY
+            # Admin authentication token
+            - name: ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ (index .Values.model "openai" | default dict).secretName | default "openai-api-key" }}
-                  key: {{ (index .Values.model "openai" | default dict).secretKey | default "api-key" }}
-            {{- end }}
-            {{- if eq .Values.app.modelProvider "gemini" }}
-            - name: GEMINI_API_KEY
+                  name: {{ .Values.admin.secretName | default "admin-secret" }}
+                  key: {{ .Values.admin.secretKey | default "token" }}
+            # Encryption key for API keys
+            - name: ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ (index .Values.model "gemini" | default dict).secretName | default "gemini-api-key" }}
-                  key: {{ (index .Values.model "gemini" | default dict).secretKey | default "api-key" }}
-            {{- end }}
+                  name: {{ .Values.admin.secretName | default "admin-secret" }}
+                  key: {{ .Values.admin.encryptionKey | default "encryption-key" }}
+            # JWT secret for token signing
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sreagent.fullname" . }}-jwt-secret
+                  key: jwt-secret
+            # JWT token expiration (in seconds)
+            - name: JWT_ACCESS_TOKEN_EXPIRY
+              value: {{ .Values.auth.accessTokenExpiry | default 900 | quote }}
+            - name: JWT_REFRESH_TOKEN_EXPIRY
+              value: {{ .Values.auth.refreshTokenExpiry | default 604800 | quote }}
+            # Session expiration (in hours/days)
+            - name: SESSION_EXPIRY_HOURS
+              value: {{ .Values.auth.sessionInactivityExpiry | default 24 | quote }}
+            - name: SESSION_ABSOLUTE_EXPIRY_DAYS
+              value: {{ .Values.auth.sessionAbsoluteExpiry | default 7 | quote }}
+            # Additional environment variables (if any)
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+            # Additional secrets (if any)
             {{- range .Values.secrets }}
             - name: {{ .name }}
               valueFrom:

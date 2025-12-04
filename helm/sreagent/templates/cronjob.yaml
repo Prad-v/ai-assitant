@@ -1,0 +1,55 @@
+{{- if .Values.securityScan.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "sreagent.fullname" . }}-security-scan
+  labels:
+    {{- include "sreagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: security-scanner
+spec:
+  schedule: {{ .Values.securityScan.schedule | default "0 0 * * *" | quote }}
+  successfulJobsHistoryLimit: {{ .Values.securityScan.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.securityScan.failedJobsHistoryLimit | default 3 }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "sreagent.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: security-scanner
+        spec:
+          {{- if .Values.serviceAccount.create }}
+          serviceAccountName: {{ include "sreagent.serviceAccountName" . }}
+          {{- end }}
+          restartPolicy: OnFailure
+          containers:
+          - name: security-scanner
+            image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+            imagePullPolicy: {{ .Values.image.pullPolicy }}
+            command: ["python", "-m", "backend.services.sreagent.scan_scheduler"]
+            env:
+            {{- if .Values.securityScan.namespaces }}
+            - name: SCAN_NAMESPACES
+              value: {{ .Values.securityScan.namespaces | join "," | quote }}
+            {{- end }}
+            {{- range $key, $value := .Values.securityScan.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            resources:
+              {{- toYaml .Values.securityScan.resources | nindent 14 }}
+          {{- with .Values.securityScan.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityScan.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityScan.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+

@@ -1,0 +1,45 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cluster-inventory.fullname" . }}
+  labels:
+    {{- include "cluster-inventory.labels" . | nindent 4 }}
+rules:
+  # Allow reading pods, services, deployments, etc. for connection testing
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps", "secrets", "events"]
+    verbs: ["get", "list", "watch"]
+  # Allow reading namespaces (for connection testing and cluster discovery)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  # Cluster inventory management permissions
+  # Allow creating/updating/deleting Secrets for cluster kubeconfigs
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Allow managing ConfigMap for cluster metadata
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cluster-inventory.fullname" . }}
+  labels:
+    {{- include "cluster-inventory.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cluster-inventory.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cluster-inventory.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+

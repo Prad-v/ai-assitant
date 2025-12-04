@@ -29,6 +29,18 @@ Create chart name and version as used by the chart label.
 {{- end }}
 
 {{/*
+Generate MySQL connection string
+*/}}
+{{- define "mysql.connectionString" -}}
+{{- if .Values.mysql.connectionString }}
+{{- .Values.mysql.connectionString }}
+{{- else }}
+{{- $port := int .Values.mysql.port }}
+{{- printf "mysql+pymysql://%s:%s@%s-mysql:%d/%s" .Values.mysql.user .Values.mysql.password (include "sreagent.fullname" .) $port .Values.mysql.database }}
+{{- end }}
+{{- end }}
+
+{{/*
 Common labels
 */}}
 {{- define "sreagent.labels" -}}
