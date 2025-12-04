@@ -14,6 +14,12 @@ DOCKER_REGISTRY ?= localhost:5000
 IMAGE_REPO ?= $(DOCKER_REGISTRY)/$(IMAGE_NAME)
 FULL_IMAGE := $(IMAGE_REPO):$(IMAGE_TAG)
 
+# Cluster Inventory variables
+CLUSTER_INVENTORY_IMAGE_NAME := cluster-inventory
+CLUSTER_INVENTORY_IMAGE_TAG := $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
+CLUSTER_INVENTORY_IMAGE_REPO ?= $(DOCKER_REGISTRY)/$(CLUSTER_INVENTORY_IMAGE_NAME)
+CLUSTER_INVENTORY_FULL_IMAGE := $(CLUSTER_INVENTORY_IMAGE_REPO):$(CLUSTER_INVENTORY_IMAGE_TAG)
+
 # Frontend variables
 FRONTEND_IMAGE_NAME := sreagent-frontend
 FRONTEND_IMAGE_TAG := $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
@@ -80,6 +86,12 @@ docker-build:
 	@docker build -t $(FULL_IMAGE) -t $(IMAGE_REPO):latest .
 	@echo "Docker image built successfully: $(FULL_IMAGE)"
 
+# Build Cluster Inventory Docker image
+cluster-inventory-docker-build:
+	@echo "Building Cluster Inventory Docker image: $(CLUSTER_INVENTORY_FULL_IMAGE)"
+	@docker build -t $(CLUSTER_INVENTORY_FULL_IMAGE) -t $(CLUSTER_INVENTORY_IMAGE_REPO):latest -f backend/services/cluster-inventory/Dockerfile .
+	@echo "Cluster Inventory Docker image built successfully: $(CLUSTER_INVENTORY_FULL_IMAGE)"
+
 # Build Frontend Docker image
 frontend-docker-build:
 	@echo "Building Frontend Docker image: $(FRONTEND_FULL_IMAGE)"
@@ -93,6 +105,13 @@ docker-push: docker-build
 	@docker push $(IMAGE_REPO):latest
 	@echo "Docker image pushed successfully"
 
+# Push Cluster Inventory Docker image
+cluster-inventory-docker-push: cluster-inventory-docker-build
+	@echo "Pushing Cluster Inventory Docker image: $(CLUSTER_INVENTORY_FULL_IMAGE)"
+	@docker push $(CLUSTER_INVENTORY_FULL_IMAGE)
+	@docker push $(CLUSTER_INVENTORY_IMAGE_REPO):latest
+	@echo "Cluster Inventory Docker image pushed successfully"
+
 # Push Frontend Docker image
 frontend-docker-push: frontend-docker-build
 	@echo "Pushing Frontend Docker image: $(FRONTEND_FULL_IMAGE)"
@@ -104,6 +123,7 @@ frontend-docker-push: frontend-docker-build
 helm-deps:
 	@echo "Updating Helm dependencies..."
 	@cd $(HELM_CHART) && helm dependency update
+	@cd helm/cluster-inventory && helm dependency update 2>/dev/null || true
 	@echo "Helm dependencies updated"
 
 # Install Helm chart
@@ -117,8 +137,29 @@ helm-install: helm-deps
 		$(if $(wildcard $(VALUES_FILE)),-f $(VALUES_FILE),)
 	@echo "Helm chart installed successfully"
 
+# Install Cluster Inventory Helm chart
+cluster-inventory-helm-install: helm-deps
+	@echo "Installing Cluster Inventory Helm chart in namespace: $(NAMESPACE)"
+	@kubectl create namespace $(NAMESPACE) 2>/dev/null || true
+	@helm install cluster-inventory helm/cluster-inventory \
+		--namespace $(NAMESPACE) \
+		--set image.repository=$(CLUSTER_INVENTORY_IMAGE_REPO) \
+		--set image.tag=$(CLUSTER_INVENTORY_IMAGE_TAG) \
+		--install
+	@echo "Cluster Inventory Helm chart installed successfully"
+
+# Upgrade Cluster Inventory Helm chart
+cluster-inventory-helm-upgrade: helm-deps
+	@echo "Upgrading Cluster Inventory Helm chart in namespace: $(NAMESPACE)"
+	@helm upgrade cluster-inventory helm/cluster-inventory \
+		--namespace $(NAMESPACE) \
+		--set image.repository=$(CLUSTER_INVENTORY_IMAGE_REPO) \
+		--set image.tag=$(CLUSTER_INVENTORY_IMAGE_TAG) \
+		--install
+	@echo "Cluster Inventory Helm chart upgraded successfully"
+
 # Upgrade Helm chart
-helm-upgrade: helm-deps
+helm-upgrade: helm-deps cluster-inventory-helm-upgrade
 	@echo "Upgrading Helm chart: $(RELEASE_NAME) in namespace: $(NAMESPACE)"
 	@helm upgrade $(RELEASE_NAME) $(HELM_CHART) \
 		--namespace $(NAMESPACE) \
@@ -131,7 +172,7 @@ helm-upgrade: helm-deps
 	@echo "Helm chart upgraded successfully"
 
 # Deploy to Kubernetes (build, push, and deploy)
-deploy: docker-build docker-push frontend-docker-build frontend-docker-push helm-upgrade
+deploy: docker-build docker-push cluster-inventory-docker-build cluster-inventory-docker-push frontend-docker-build frontend-docker-push helm-upgrade
 	@echo "Deployment completed successfully!"
 	@echo "Backend Image: $(FULL_IMAGE)"
 	@echo "Frontend Image: $(FRONTEND_FULL_IMAGE)"
@@ -146,7 +187,7 @@ deploy: docker-build docker-push frontend-docker-build frontend-docker-push helm
 	@echo "  kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME)-frontend 3000:3000"
 
 # Deploy all (build, test, push, and deploy)
-deploy-all: test docker-build docker-push frontend-docker-build frontend-docker-push helm-upgrade
+deploy-all: test docker-build docker-push cluster-inventory-docker-build cluster-inventory-docker-push frontend-docker-build frontend-docker-push helm-upgrade
 	@echo "Full deployment completed successfully!"
 	@echo "Backend Image: $(FULL_IMAGE)"
 	@echo "Frontend Image: $(FRONTEND_FULL_IMAGE)"
@@ -162,9 +203,10 @@ deploy-all: test docker-build docker-push frontend-docker-build frontend-docker-
 	@echo "  ADK Web UI: kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME) 8000:80"
 
 # Build everything (local build without push)
-build: test docker-build frontend-docker-build
+build: test docker-build cluster-inventory-docker-build frontend-docker-build
 	@echo "Build completed successfully!"
 	@echo "Backend Image: $(FULL_IMAGE)"
+	@echo "Cluster Inventory Image: $(CLUSTER_INVENTORY_FULL_IMAGE)"
 	@echo "Frontend Image: $(FRONTEND_FULL_IMAGE)"
 
 # Show help message
@@ -179,10 +221,12 @@ help:
 	@echo "  make clean         - Remove virtual environment"
 	@echo ""
 	@echo "Docker:"
-	@echo "  make docker-build          - Build backend Docker image"
-	@echo "  make docker-push           - Build and push backend Docker image"
-	@echo "  make frontend-docker-build - Build frontend Docker image"
-	@echo "  make frontend-docker-push  - Build and push frontend Docker image"
+	@echo "  make docker-build                    - Build backend Docker image"
+	@echo "  make docker-push                     - Build and push backend Docker image"
+	@echo "  make cluster-inventory-docker-build   - Build cluster inventory Docker image"
+	@echo "  make cluster-inventory-docker-push    - Build and push cluster inventory Docker image"
+	@echo "  make frontend-docker-build            - Build frontend Docker image"
+	@echo "  make frontend-docker-push             - Build and push frontend Docker image"
 	@echo ""
 	@echo "Helm:"
 	@echo "  make helm-deps     - Update Helm chart dependencies"

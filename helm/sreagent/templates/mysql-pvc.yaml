@@ -1,0 +1,19 @@
+{{- if and .Values.mysql.enabled .Values.mysql.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "sreagent.fullname" . }}-mysql
+  labels:
+    {{- include "sreagent.labels" . | nindent 4 }}
+    component: mysql
+spec:
+  accessModes:
+    - {{ .Values.mysql.persistence.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.mysql.persistence.size | default "10Gi" }}
+  {{- if .Values.mysql.persistence.storageClass }}
+  storageClassName: {{ .Values.mysql.persistence.storageClass }}
+  {{- end }}
+{{- end }}
+

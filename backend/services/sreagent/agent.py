@@ -1,8 +1,9 @@
 """ADK Agent for Kubernetes troubleshooting."""
 
 import os
+import logging
 from google.adk.agents import Agent
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Any
 
 # Import ADK's native McpToolset as per ADK documentation:
 # https://google.github.io/adk-docs/tools-custom/mcp-tools/
@@ -20,38 +21,64 @@ try:
 except ImportError:
     LiteLlm = None
 
-# Get model configuration from environment
-# Standardized through LiteLLM - supports all providers
-MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "gemini")  # gemini, openai, anthropic, etc.
-MODEL_NAME = os.getenv("MODEL_NAME", None)
+logger = logging.getLogger(__name__)
 
-# API keys from environment (should be set from K8s secrets)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", None)  # For Gemini via LiteLLM
 
-# Token optimization settings
-MAX_TOKENS = os.getenv("MAX_TOKENS", None)
-TEMPERATURE = os.getenv("TEMPERATURE", None)
-
-# Determine model based on provider
-# LiteLLM format: "provider/model-name" (e.g., "openai/gpt-4", "gemini/gemini-2.0-flash")
-if MODEL_NAME:
-    # If MODEL_NAME already includes provider prefix, use as-is
-    # Otherwise, add provider prefix
-    if "/" in MODEL_NAME:
-        MODEL = MODEL_NAME
+def get_model_settings_from_db() -> Dict[str, Any]:
+    """
+    Get model settings from database.
+    
+    Falls back to environment variables if database is not available or settings not configured.
+    
+    Returns:
+        Dict with model configuration: provider, model_name, api_key, max_tokens, temperature
+    """
+    try:
+        from .settings_service import SettingsService
+        
+        settings = SettingsService.get_model_settings()
+        api_key = SettingsService.get_api_key()
+        
+        if settings and api_key:
+            return {
+                "provider": settings["provider"],
+                "model_name": settings["model_name"],
+                "api_key": api_key,
+                "max_tokens": settings.get("max_tokens"),
+                "temperature": settings.get("temperature"),
+            }
+    except Exception as e:
+        logger.warning(f"Failed to get model settings from database: {e}. Falling back to environment variables.")
+    
+    # Fallback to environment variables (for backward compatibility during migration)
+    logger.warning("Using environment variables for model configuration. Configure via settings page for production.")
+    provider = os.getenv("MODEL_PROVIDER", "gemini")
+    model_name = os.getenv("MODEL_NAME", None)
+    
+    # Get API key based on provider
+    if provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", None)
+        if not model_name:
+            model_name = os.getenv("OPENAI_MODEL", "gpt-4-turbo")
+    elif provider == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY", None)
+        if not model_name:
+            model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     else:
-        MODEL = f"{MODEL_PROVIDER}/{MODEL_NAME}"
-elif MODEL_PROVIDER == "openai":
-    model_name = os.getenv("OPENAI_MODEL", "gpt-4-turbo")
-    MODEL = f"openai/{model_name}"
-elif MODEL_PROVIDER == "gemini":
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    MODEL = f"gemini/{model_name}"
-else:
-    # For other providers, use provider/model format
-    model_name = os.getenv("MODEL_NAME", "default")
-    MODEL = f"{MODEL_PROVIDER}/{model_name}"
+        api_key = os.getenv("API_KEY", None)
+        if not model_name:
+            model_name = "default"
+    
+    max_tokens = os.getenv("MAX_TOKENS", None)
+    temperature = os.getenv("TEMPERATURE", None)
+    
+    return {
+        "provider": provider,
+        "model_name": model_name,
+        "api_key": api_key,
+        "max_tokens": int(max_tokens) if max_tokens else None,
+        "temperature": float(temperature) if temperature else None,
+    }
 
 APP_NAME = os.getenv("APP_NAME", "sreagent")
 AGENT_NAME = os.getenv("AGENT_NAME", "k8s_troubleshooting_agent")
@@ -138,31 +165,51 @@ def create_sre_agent() -> Agent:
         logger.error("LiteLLM is not available. Please ensure litellm is installed.")
         raise ImportError("LiteLLM is required for model configuration")
     
-    # Build LiteLLM configuration with token optimization
-    lite_llm_kwargs = {"model": MODEL}
+    # Get model settings from database (with fallback to env vars)
+    model_settings = get_model_settings_from_db()
     
-    # Set API keys if provided (from K8s secrets)
-    if OPENAI_API_KEY:
-        lite_llm_kwargs["api_key"] = OPENAI_API_KEY
-    elif GEMINI_API_KEY:
-        lite_llm_kwargs["api_key"] = GEMINI_API_KEY
+    if not model_settings or not model_settings.get("api_key"):
+        # If no settings in DB and no env vars, allow agent to start but it won't work until configured
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("No model configuration found. Agent will start but won't be able to process requests until configured via settings page.")
+        # Return a minimal config to allow agent initialization
+        model_settings = {
+            "provider": "openai",
+            "model_name": "gpt-4",
+            "api_key": "",  # Empty - will fail on first use, prompting user to configure
+            "max_tokens": None,
+            "temperature": None,
+        }
+    
+    # Build model string
+    model_name = model_settings["model_name"]
+    if "/" in model_name:
+        model = model_name
+    else:
+        model = f"{model_settings['provider']}/{model_name}"
+    
+    # Build LiteLLM configuration with token optimization
+    if not model_settings.get("api_key"):
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("API key not configured. Agent initialized but will require configuration via settings page.")
+        # Create agent without API key - it will fail on first use
+        lite_llm_kwargs = {
+            "model": model,
+        }
+    else:
+        lite_llm_kwargs = {
+            "model": model,
+            "api_key": model_settings["api_key"],
+        }
     
     # Add token optimization settings
-    if MAX_TOKENS:
-        try:
-            lite_llm_kwargs["max_tokens"] = int(MAX_TOKENS)
-        except ValueError:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Invalid MAX_TOKENS value: {MAX_TOKENS}")
+    if model_settings.get("max_tokens"):
+        lite_llm_kwargs["max_tokens"] = model_settings["max_tokens"]
     
-    if TEMPERATURE:
-        try:
-            lite_llm_kwargs["temperature"] = float(TEMPERATURE)
-        except ValueError:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Invalid TEMPERATURE value: {TEMPERATURE}")
+    if model_settings.get("temperature") is not None:
+        lite_llm_kwargs["temperature"] = model_settings["temperature"]
     
     model = LiteLlm(**lite_llm_kwargs)
     

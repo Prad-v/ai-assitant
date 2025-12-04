@@ -1,0 +1,173 @@
+import axios from 'axios';
+
+// Get API base URL from environment or use default
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (import.meta.env.DEV ? 'http://localhost:8000' : '/api');
+
+// Get admin token from localStorage or environment
+const getAdminToken = () => {
+  return localStorage.getItem('adminToken') || import.meta.env.VITE_ADMIN_TOKEN || '';
+};
+
+// Create axios instance for settings API
+const settingsApiClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 60000,
+});
+
+// Add authentication tokens to requests
+settingsApiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    const sessionToken = localStorage.getItem('sessionToken');
+    if (sessionToken) {
+      config.headers['X-Session-Token'] = sessionToken;
+    }
+    // Fallback to admin token for backward compatibility
+    const adminToken = getAdminToken();
+    if (adminToken && !token) {
+      config.headers['X-Admin-Token'] = adminToken;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Handle 401 responses
+settingsApiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('sessionToken');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+/**
+ * Get current model settings
+ * @returns {Promise<{provider: string, model_name: string, max_tokens?: number, temperature?: number}>}
+ */
+export const getModelSettings = async () => {
+  try {
+    const response = await settingsApiClient.get('/settings/model');
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      throw new Error(error.response.data.detail || 'Failed to get model settings');
+    } else if (error.request) {
+      throw new Error('No response from server. Please check if the backend is running.');
+    } else {
+      throw new Error(error.message || 'Failed to get model settings');
+    }
+  }
+};
+
+/**
+ * Update model settings
+ * @param {Object} settings - Model settings
+ * @param {string} settings.provider - Model provider (e.g., "openai", "gemini")
+ * @param {string} settings.model_name - Model name (e.g., "gpt-4", "gemini-2.0-flash")
+ * @param {string} settings.api_key - API key
+ * @param {number} [settings.max_tokens] - Optional max tokens
+ * @param {number} [settings.temperature] - Optional temperature (0.0-2.0)
+ * @returns {Promise<Object>}
+ */
+export const updateModelSettings = async (settings) => {
+  try {
+    const response = await settingsApiClient.put('/settings/model', settings);
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      throw new Error(error.response.data.detail || 'Failed to update model settings');
+    } else if (error.request) {
+      throw new Error('No response from server. Please check if the backend is running.');
+    } else {
+      throw new Error(error.message || 'Failed to update model settings');
+    }
+  }
+};
+
+/**
+ * Validate API key without saving
+ * @param {string} provider - Model provider
+ * @param {string} modelName - Model name
+ * @param {string} apiKey - API key to validate
+ * @returns {Promise<{valid: boolean, message: string}>}
+ */
+export const validateApiKey = async (provider, modelName, apiKey) => {
+  try {
+    const response = await settingsApiClient.post('/settings/model/validate', {
+      provider,
+      model_name: modelName,
+      api_key: apiKey,
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      throw new Error(error.response.data.detail || 'Failed to validate API key');
+    } else if (error.request) {
+      throw new Error('No response from server. Please check if the backend is running.');
+    } else {
+      throw new Error(error.message || 'Failed to validate API key');
+    }
+  }
+};
+
+/**
+ * List available models for a provider
+ * @param {string} provider - Model provider
+ * @param {string} apiKey - API key
+ * @returns {Promise<{success: boolean, models: string[], message: string}>}
+ */
+export const listAvailableModels = async (provider, apiKey) => {
+  try {
+    const response = await settingsApiClient.post('/settings/models/list', {
+      provider,
+      api_key: apiKey,
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      throw new Error(error.response.data.detail || 'Failed to list models');
+    } else if (error.request) {
+      throw new Error('No response from server. Please check if the backend is running.');
+    } else {
+      throw new Error(error.message || 'Failed to list models');
+    }
+  }
+};
+
+/**
+ * Reload agent with new settings
+ * @returns {Promise<Object>}
+ */
+export const reloadAgent = async () => {
+  try {
+    const response = await settingsApiClient.post('/settings/model/reload');
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      throw new Error(error.response.data.detail || 'Failed to reload agent');
+    } else if (error.request) {
+      throw new Error('No response from server. Please check if the backend is running.');
+    } else {
+      throw new Error(error.message || 'Failed to reload agent');
+    }
+  }
+};
+
+export default settingsApiClient;
+

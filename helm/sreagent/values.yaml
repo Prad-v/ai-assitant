@@ -66,22 +66,17 @@ tolerations: []
 
 affinity: {}
 
+# Cluster Inventory Service configuration
+clusterInventory:
+  serviceUrl: "http://cluster-inventory:8001"
+
 # Application configuration
 app:
   name: sreagent
-  # Model provider: "gemini", "openai", "anthropic", etc.
-  # All models are configured through LiteLLM (standardized approach)
-  modelProvider: "gemini"
-  # Model name (without provider prefix - will be formatted as "provider/model-name")
-  # For Gemini: "gemini-2.0-flash", "gemini-1.5-pro", etc.
-  # For OpenAI: "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", etc.
-  # If you provide full format like "openai/gpt-4", it will be used as-is
-  modelName: "gemini-2.0-flash"  # Default model
   host: "0.0.0.0"
   port: 8000
-  # Token optimization settings (applies to all models via LiteLLM)
-  maxTokens: null  # Optional: limit response tokens (e.g., 2000). null = no limit
-  temperature: null  # Optional: control randomness (0.0-2.0). Lower = more focused. null = default
+  # Model configuration is now managed via the Settings page and stored in MySQL database
+  # No model configuration needed here - configure via UI after deployment
 
 # MCP server configuration
 mcp:
@@ -94,21 +89,68 @@ env: []
   # - name: CUSTOM_VAR
   #   value: "custom_value"
 
-# Generic Model API key configuration (standardized through LiteLLM)
-# This single secret can hold either OpenAI or Gemini API key
-# The agent will use the appropriate key based on modelProvider setting
-model:
-  # Secret name for the generic API key
-  secretName: "model-api-key"
-  # Key name within the secret
-  secretKey: "api-key"
-  # API key value (replace with real key in production)
-  # This will be used for whichever provider is configured in app.modelProvider
+# MySQL Database configuration
+mysql:
+  enabled: true
+  image:
+    repository: mysql
+    tag: "8.0"
+    pullPolicy: IfNotPresent
+  port: 3306
+  database: "sreagent"
+  user: "sreagent"
+  password: "sreagent"  # Change in production
+  rootPassword: "rootpassword"  # Change in production
+  # Secret name for MySQL credentials
+  secretName: "mysql-secret"
+  # Connection string (auto-generated from above values)
+  connectionString: ""  # Will be: mysql+pymysql://sreagent:sreagent@sreagent-mysql:3306/sreagent
+  persistence:
+    enabled: true
+    size: "10Gi"
+    accessMode: "ReadWriteOnce"
+    storageClass: ""  # Use default storage class if empty
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# Admin authentication configuration
+auth:
+  # JWT secret for token signing
+  # If not provided, a random secret will be generated
+  jwtSecret: ""  # Base64 encoded secret, or leave empty for auto-generation
+  # JWT token expiration times (in seconds)
+  accessTokenExpiry: 900  # 15 minutes
+  refreshTokenExpiry: 604800  # 7 days
+  # Session expiration times
+  sessionInactivityExpiry: 24  # Hours of inactivity before expiry
+  sessionAbsoluteExpiry: 7  # Days before absolute expiry
+
+admin:
+  # Secret name for admin token and encryption key
+  secretName: "admin-secret"
+  # Key name for admin token in secret
+  secretKey: "token"
+  # Key name for encryption key in secret
+  encryptionKey: "encryption-key"
+  # Admin token value (replace with secure token in production)
   # In production, create manually:
-  #   kubectl create secret generic model-api-key --from-literal=api-key=YOUR_KEY
-  # Or update the secret:
-  #   kubectl create secret generic model-api-key --from-literal=api-key=YOUR_KEY --dry-run=client -o yaml | kubectl apply -f -
-  apiKey: "dummy-api-key-replace-with-real-key"
+  #   kubectl create secret generic admin-secret \
+  #     --from-literal=token=YOUR_SECURE_ADMIN_TOKEN \
+  #     --from-literal=encryption-key=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+  token: "dev-admin-token-change-in-production"
+  # Encryption key for API keys (Fernet key, base64-encoded)
+  # Generate with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  # In production, create manually:
+  #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > /tmp/encryption-key
+  #   kubectl create secret generic admin-secret \
+  #     --from-literal=token=YOUR_SECURE_ADMIN_TOKEN \
+  #     --from-file=encryption-key=/tmp/encryption-key
+  encryptionKeyValue: "esm6JnrOMF0Ms46seKWTp5hxgJQ8NPm6egXlx3Tr1Cc="  # Generated encryption key
 
 # Legacy secrets configuration (for backward compatibility)
 secrets: []
@@ -123,7 +165,7 @@ frontend:
   image:
     repository: sreagent-frontend
     pullPolicy: IfNotPresent
-    tag: "0.1.0"
+    tag: "27645d1-dirty"  # Use specific tag for Kind cluster
   port: 3000
   service:
     type: ClusterIP
@@ -168,4 +210,20 @@ kubernetes-mcp-server:
   replicaCount: 1
   ingress:
     enabled: false
+
+# Security scan configuration
+securityScan:
+  enabled: true
+  schedule: "0 0 * * *"  # Daily at midnight (cron format)
+  namespaces: []  # Empty = scan all namespaces, or specify list: ["default", "production"]
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  env: {}
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
 

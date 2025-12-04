@@ -1,6 +1,27 @@
 version: '3.8'
 
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: sreagent-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=sreagent
+      - MYSQL_USER=sreagent
+      - MYSQL_PASSWORD=sreagent
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - sreagent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   sreagent:
     build:
       context: .
@@ -10,7 +31,14 @@ services:
       - "8000:8000"
     environment:
       - APP_NAME=sreagent
-      - GEMINI_MODEL=gemini-2.0-flash
+      - DATABASE_URL=mysql+pymysql://sreagent:sreagent@mysql:3306/sreagent
+      - ADMIN_TOKEN=dev-admin-token-change-in-production
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
+      - JWT_ACCESS_TOKEN_EXPIRY=900
+      - JWT_REFRESH_TOKEN_EXPIRY=604800
+      - SESSION_EXPIRY_HOURS=24
+      - SESSION_ABSOLUTE_EXPIRY_DAYS=7
       - MCP_SERVER_HOST=kubernetes-mcp-server
       - MCP_SERVER_PORT=8080
       - MCP_TRANSPORT=stdio
@@ -23,7 +51,10 @@ services:
       # Mount Google credentials if available
       - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/var/secrets/google/key.json:ro
     depends_on:
-      - kubernetes-mcp-server
+      mysql:
+        condition: service_healthy
+      kubernetes-mcp-server:
+        condition: service_started
     networks:
       - sreagent-network
     restart: unless-stopped
@@ -56,6 +87,9 @@ services:
     networks:
       - sreagent-network
     restart: unless-stopped
+
+volumes:
+  mysql-data:
 
 networks:
   sreagent-network:

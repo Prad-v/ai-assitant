@@ -16,8 +16,19 @@ mcp>=0.9.0
 # Kubernetes client (for direct operations if needed)
 kubernetes>=28.0.0
 
+# Database dependencies
+sqlalchemy>=2.0.0
+pymysql>=1.1.0
+alembic>=1.12.0
+cryptography>=41.0.0  # For API key encryption
+
+# Authentication dependencies
+bcrypt>=4.0.0  # Password hashing
+PyJWT>=2.8.0  # JWT token handling
+passlib[bcrypt]>=1.7.4  # Password hashing utilities
+
 # Utilities
 python-dotenv>=1.0.0
 pyyaml>=6.0
-httpx>=0.25.0  # For HTTP MCP transport
+httpx>=0.25.0  # For HTTP MCP transport and cluster inventory client
 

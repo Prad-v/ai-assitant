@@ -1,0 +1,143 @@
+.cluster-card {
+  background-color: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+
+.cluster-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-color: #007bff;
+}
+
+.cluster-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.cluster-name {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0;
+  flex: 1;
+}
+
+.cluster-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.cluster-status.connected {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.cluster-status.disconnected {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.cluster-status.error {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.cluster-status.unknown {
+  background-color: #e2e3e5;
+  color: #383d41;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.cluster-description {
+  color: #666;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+  line-height: 1.5;
+  min-height: 2.5rem;
+}
+
+.cluster-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.cluster-tag {
+  background-color: #f0f0f0;
+  color: #666;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.cluster-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 1rem;
+  border-top: 1px solid #e0e0e0;
+  font-size: 0.75rem;
+  color: #999;
+}
+
+.cluster-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.action-button {
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.action-button:hover {
+  background-color: #f0f0f0;
+  color: #007bff;
+}
+
+.action-button.danger:hover {
+  color: #dc3545;
+  background-color: #fee;
+}
+
+.cluster-card.loading {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.cluster-card.loading .cluster-name::after {
+  content: '...';
+  animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+

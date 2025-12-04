@@ -42,20 +42,41 @@ spec:
             - configMapRef:
                 name: {{ include "sreagent.fullname" . }}-config
           env:
-            # API keys from secrets (not in ConfigMap for security)
-            {{- if eq .Values.app.modelProvider "openai" }}
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.model.secretName | default "model-api-key" }}
-                  key: {{ .Values.model.secretKey | default "api-key" }}
-            {{- else if eq .Values.app.modelProvider "gemini" }}
-            - name: GEMINI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.model.secretName | default "model-api-key" }}
-                  key: {{ .Values.model.secretKey | default "api-key" }}
+            - name: CLUSTER_INVENTORY_SERVICE_URL
+              value: {{ .Values.clusterInventory.serviceUrl | quote }}
+            # Database configuration
+            {{- if .Values.mysql.enabled }}
+            - name: DATABASE_URL
+              value: {{ include "mysql.connectionString" . | quote }}
             {{- end }}
+            # Admin authentication token
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.secretName | default "admin-secret" }}
+                  key: {{ .Values.admin.secretKey | default "token" }}
+            # Encryption key for API keys
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.secretName | default "admin-secret" }}
+                  key: {{ .Values.admin.encryptionKey | default "encryption-key" }}
+            # JWT secret for token signing
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sreagent.fullname" . }}-jwt-secret
+                  key: jwt-secret
+            # JWT token expiration (in seconds)
+            - name: JWT_ACCESS_TOKEN_EXPIRY
+              value: {{ .Values.auth.accessTokenExpiry | default 900 | quote }}
+            - name: JWT_REFRESH_TOKEN_EXPIRY
+              value: {{ .Values.auth.refreshTokenExpiry | default 604800 | quote }}
+            # Session expiration (in hours/days)
+            - name: SESSION_EXPIRY_HOURS
+              value: {{ .Values.auth.sessionInactivityExpiry | default 24 | quote }}
+            - name: SESSION_ABSOLUTE_EXPIRY_DAYS
+              value: {{ .Values.auth.sessionAbsoluteExpiry | default 7 | quote }}
             # Additional environment variables (if any)
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}

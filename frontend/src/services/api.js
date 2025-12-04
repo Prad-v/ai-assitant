@@ -15,20 +15,56 @@ const apiClient = axios.create({
   timeout: 60000, // 60 seconds timeout for long-running queries
 });
 
+// Add authentication tokens to requests
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    const sessionToken = localStorage.getItem('sessionToken');
+    if (sessionToken) {
+      config.headers['X-Session-Token'] = sessionToken;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Handle 401 responses
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('sessionToken');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
 /**
  * Send a chat message to the agent
  * @param {string} message - User message
- * @param {string} userId - User identifier
  * @param {string} sessionId - Session identifier (optional)
+ * @param {string} clusterId - Cluster ID for multi-cluster support (optional)
  * @returns {Promise<{response: string, session_id: string}>}
  */
-export const sendMessage = async (message, userId = 'default_user', sessionId = null) => {
+export const sendMessage = async (message, sessionId = null, clusterId = null) => {
   try {
-    const response = await apiClient.post('/chat', {
+    const payload = {
       message,
-      user_id: userId,
       session_id: sessionId,
-    });
+    };
+    if (clusterId) {
+      payload.cluster_id = clusterId;
+    }
+    const response = await apiClient.post('/chat', payload);
     return response.data;
   } catch (error) {
     if (error.response) {

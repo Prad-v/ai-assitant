@@ -5,8 +5,11 @@ A Kubernetes troubleshooting chat agent built with Google ADK that integrates wi
 ## Features
 
 - **Intelligent K8s Troubleshooting**: AI-powered assistant for diagnosing Kubernetes cluster issues
+- **Multi-Cluster Support**: Manage and switch between multiple Kubernetes clusters via inventory management
+- **Auto-Discovery**: Automatically discovers and registers the in-cluster configuration when running inside Kubernetes
 - **MCP Integration**: Seamless integration with kubernetes-mcp-server for Kubernetes operations
 - **React UI**: Modern React-based frontend for chat interface (separate service)
+- **Cluster Inventory**: Admin interface for uploading and managing kubeconfig files for multiple clusters
 - **ADK Web Interface**: Built-in web UI for interactive chat with the agent (via `adk web`)
 - **REST API**: Programmatic access via FastAPI endpoints
 - **Helm Deployment**: Production-ready Helm chart with kubernetes-mcp-server as subchart
@@ -105,6 +108,7 @@ helm install sreagent ./helm/sreagent \
 - [API Reference](docs/api-reference.md) - REST API documentation
 - [React UI Guide](docs/react-ui-guide.md) - React frontend usage guide
 - [ADK Web Interface](docs/adk-web-interface.md) - ADK web UI usage guide
+- [Cluster Inventory](docs/cluster-inventory.md) - Multi-cluster management guide
 - [Generic API Key Secret](docs/generic-api-key-secret.md) - Generic API key secret configuration
 - [OpenAI Configuration](docs/openai-configuration.md) - OpenAI model setup guide
 - [Security Reviewer Workflow](docs/security-reviewer-workflow.md) - Security analysis guide
